@@ -1,0 +1,27 @@
+# Qwen Studio for OpenCLI
+
+Independent OpenCLI adapter for `https://chat.qwen.ai/` (separate from the existing Qianwen adapter).
+
+## Install and use
+
+Install this directory with `opencli plugin install <path-or-url>`. The connected OpenCLI Chrome session must already be signed in to Qwen.
+
+```sh
+opencli qwen-studio status
+opencli qwen-studio chats
+opencli qwen-studio projects
+opencli qwen-studio folders
+opencli qwen-studio library
+opencli qwen-studio chat-detail <conversation-id>
+opencli qwen-studio ask "Reply exactly: hello" --thinking auto
+opencli qwen-studio ask "Search for current weather" --mode web_search
+opencli qwen-studio code-output '<assistant response text>'
+```
+
+`ask` starts a new Qwen conversation. It supports `--thinking auto|thinking|fast`, `--mode web_dev|web_search|deep_research`, and optional `--attachment <local-file>`. It returns stored messages when Qwen marks a nonempty assistant response complete. Qwen may reject a prompt or be unavailable due to account limits or service load.
+
+Read commands list projects, folders, library items, and chats (`--page N` for later chat pages). Use `--window background` to keep Chrome automation out of the foreground. The adapter was verified from outside this directory with a live status request; OpenCLI still needs its connected, signed-in Chrome bridge.
+
+`code-output` extracts fenced code blocks from supplied response text. Add `--output <new-path>` to save one block (`--index` is one-based); existing files are never overwritten. Pass the response text explicitly, for example from a saved `ask` result.
+
+See [command reference](docs/commands.md), [coverage](docs/coverage.md), [architecture](docs/architecture.md), and [verification](docs/verification.md). This adapter does not implement the rest of Qwen's visible UI; coverage is stated explicitly.
