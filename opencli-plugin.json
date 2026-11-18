@@ -1,6 +1,0 @@
-{
-  "name": "qwen-studio",
-  "version": "0.1.0",
-  "description": "An opencli plugin: qwen-studio",
-  "opencli": ">=2.0.3"
-}
