@@ -212,3 +212,26 @@ test('preserves long, multiline, Unicode, and structured assistant text verbatim
   } } } } };
   assert.equal(parseCompletedMessages(payload, false, newTurn).at(-1).content, content);
 });
+
+test('uses a finished answer component when top-level content is empty', () => {
+  const payload = { success: true, data: { chat: { history: { messages: {
+    user: { id: 'u', role: 'user', content: 'hi' },
+    assistant: { id: 'a', role: 'assistant', content: '', done: true, content_list: [
+      { phase: 'thinking_summary', status: 'finished', content: 'private reasoning' },
+      { phase: 'answer', status: 'finished', content: 'hello' },
+    ] },
+  } } } } };
+  const messages = parseCompletedMessages(payload, false, newTurn);
+  assert.equal(messages.at(-1).content, 'hello');
+  assert.equal(formatAskResult('chat-id', messages, false, newTurn).answer, 'hello');
+  payload.data.chat.history.messages.assistant.content_list.push({ phase: 'answer', status: 'finished', content: 'other' });
+  assert.throws(() => parseCompletedMessages(payload, false, newTurn), /multiple answer components/);
+  payload.data.chat.history.messages.assistant.content_list.pop();
+  payload.data.chat.history.messages.assistant.content_list[1].status = 'running';
+  assert.throws(() => parseCompletedMessages(payload, false, newTurn), /without a response/);
+});
+
+test('rejects invalid model arguments without affecting thinking validation', () => {
+  for (const model of ['', '  ', 3]) assert.throws(() => validateAskArgs({ prompt: 'hi', model }), /model must be/);
+  assert.equal(validateAskArgs({ prompt: 'hi', model: 'Model A', thinking: 'thinking' }).thinking, 'thinking');
+});

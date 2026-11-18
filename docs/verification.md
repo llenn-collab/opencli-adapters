@@ -8,9 +8,9 @@
 - `opencli adapter check qwen-studio/<command>` — all eight commands passed with zero warnings.
 - GitHub issues page — 0 open issues. `gh issue list --repo llenn-collab/temp-workarounds-to-do --state all --limit 50` could not reach the API through the environment proxy.
 
-## Current automated checks
+## Earlier automated checks
 
-Final checks:
+Historical checks (the Phase 2 baseline is recorded below):
 
 - `node --test tests/*.test.js` — 20 passed, 0 failed, 0 skipped.
 - `opencli adapter check qwen-studio/<command>` for `status`, `chats`, `chat-detail`, `ask`, `projects`, `folders`, `library`, and `code-output` — all passed with zero warnings.
@@ -57,3 +57,11 @@ Current audit run:
 - `bili codex --help` failed before launch: `ENOENT: no such file or directory, mkdir '/Users/llenn/.codex-bili-s1-bili-s1/.bili-launch.lock'`. No session files or global configurations were altered.
 
 Never include account tokens or private chat contents in logs or fixtures. The account authorized small test prompts in the prior verification; prompts can consume usage. Avoid retrying a timed-out write until checking the chat list.
+
+## Phase 2 baseline and read-only investigation (2026-11-18)
+
+- Branch `main`, HEAD and fetched `origin/main` both `18466383dd3e0c03e83eaf18fb624f627eb6317f`; unrelated worktree changes were preserved.
+- Before Phase 2 edits, `node --test tests/*.test.js` passed 28 tests, superseding the earlier counts above.
+- Signed-in status succeeded. The existing controlled test conversation had `done: true` and empty top-level assistant `content`, but a finished `answer` component contained the expected answer displayed in the UI. This establishes a parser defect for that conversation; historical high-demand notices do not establish the cause of every empty response.
+- The free-account model menu exposed labels and selected state. A manual model change and restoration left the visible Auto thinking mode unchanged; this does not establish successful model execution. No prompts were submitted for this investigation.
+- After implementation, `node --test tests/*.test.js` passed 37 tests; `opencli adapter check qwen-studio/ask` and `opencli adapter check qwen-studio/models` passed without warnings; `git diff --check` passed. The live `models` command matched the three visible labels and selection state. One attempted `ask --model` stopped before dispatch with `Native input requires a visible browser page; input was not dispatched.` No prompt was submitted.

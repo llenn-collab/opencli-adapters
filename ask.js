@@ -1,5 +1,6 @@
 import { cli, Strategy } from '@jackwener/opencli/registry';
 import { CommandExecutionError } from '@jackwener/opencli/errors';
+import { selectModel } from './model-ui.mjs';
 
 const modes = { web_dev: 'Web Dev', web_search: 'Web search', deep_research: 'Deep Research' };
 const thinkingModes = ['auto', 'thinking', 'fast'];
@@ -10,6 +11,9 @@ export function validateAskArgs(args) {
   if (!thinkingModes.includes(thinking)) throw new CommandExecutionError('thinking must be auto, thinking, or fast');
   if (mode && !Object.hasOwn(modes, mode)) throw new CommandExecutionError('mode must be web_dev, web_search, or deep_research');
   if (typeof args.prompt !== 'string' || !args.prompt.trim()) throw new CommandExecutionError('prompt is required');
+  if (args.model !== undefined && (typeof args.model !== 'string' || !args.model.trim())) {
+    throw new CommandExecutionError('model must be a nonempty model label');
+  }
   const timeout = Number(args.timeout ?? 1800);
   if (!Number.isInteger(timeout) || timeout < 10 || timeout > 3600) {
     throw new CommandExecutionError('timeout must be an integer between 10 and 3600 seconds');
@@ -91,10 +95,15 @@ export function parseCompletedMessages(payload, generating, { baselineMessageIds
   const assistant = ordered.slice(userIndex + 1).findLast((message) => !baselineMessageIds.has(message.id)
     && message.role === 'assistant');
   if (!assistant || assistant.done !== true || generating) return null;
-  if (typeof assistant.content !== 'string' || !assistant.content) {
+  const answerParts = Array.isArray(assistant.content_list)
+    ? assistant.content_list.filter((part) => part?.phase === 'answer' && part.status === 'finished' && typeof part.content === 'string' && part.content)
+    : [];
+  if (!assistant.content && answerParts.length > 1) throw new CommandExecutionError('Qwen returned multiple answer components; cannot verify the complete response');
+  const answer = assistant.content || answerParts[0]?.content;
+  if (!answer) {
     throw new CommandExecutionError('Qwen completed the request without a response; check account limits or site errors');
   }
-  return ordered.map(({ id, role, content, timestamp }) => ({ id, role, content, timestamp: timestamp ?? null }));
+  return ordered.map(({ id, role, content, timestamp }) => ({ id, role, content: id === assistant.id ? answer : content, timestamp: timestamp ?? null }));
 }
 
 export function formatAskResult(conversationId, messages, includeMessages = false, { prompt, baselineMessageIds = new Set() } = {}) {
@@ -141,6 +150,7 @@ cli({
   args: [
     { name: 'prompt', positional: true, required: true, help: 'Prompt to send' },
     { name: 'thinking', type: 'str', default: 'auto', choices: thinkingModes, help: 'Thinking mode' },
+    { name: 'model', type: 'str', help: 'Available model label from qwen-studio models' },
     { name: 'mode', type: 'str', help: 'Optional mode: web_dev, web_search, deep_research' },
     { name: 'attachment', type: 'str', help: 'Optional local file to attach' },
     { name: 'conversation-id', type: 'str', help: 'Existing conversation ID to continue' },
@@ -168,6 +178,7 @@ cli({
     const baselineMessageIds = conversationId
       ? await captureConversationBaseline(page, conversationId, Math.min(timeout * 1000, 10000))
       : new Set();
+    if (args.model !== undefined) await selectModel(page, args.model);
     const chooseMode = async (label) => {
       await page.click('[aria-label="Select Mode"]');
       await page.wait({ selector: '[role="menuitem"]', timeout: 10 });

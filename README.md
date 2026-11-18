@@ -8,18 +8,19 @@ Install this directory with `opencli plugin install <path-or-url>`. The connecte
 
 ```sh
 opencli qwen-studio status
+opencli qwen-studio models
 opencli qwen-studio chats
 opencli qwen-studio projects
 opencli qwen-studio folders
 opencli qwen-studio library
 opencli qwen-studio chat-detail <conversation-id>
-opencli qwen-studio ask "Reply exactly: hello" --thinking auto
+opencli qwen-studio ask "Reply exactly: hello" --thinking auto --model "<model label>"
 opencli qwen-studio ask "What did I just ask you?" --conversation-id <conversation-id>
 opencli qwen-studio ask "Search for current weather" --mode web_search
 opencli qwen-studio code-output '<assistant response text>'
 ```
 
-`ask` starts a new Qwen conversation by default. Pass `--conversation-id <id>` to open and continue an existing conversation through Qwen's UI; its stored history remains available to Qwen. The default JSON data includes only `answer` and `conversation_id`; pass `--include-messages` to include the messages returned by Qwen's current 10-message read window. It supports `--thinking auto|thinking|fast`, `--mode web_dev|web_search|deep_research`, and optional `--attachment <local-file>`. It returns only after Qwen marks a nonempty assistant response complete. Qwen may be unavailable due to account limits or service load.
+`ask` starts a new Qwen conversation by default. Pass `--conversation-id <id>` to open and continue an existing conversation through Qwen's UI; its stored history remains available to Qwen. The default JSON data includes only `answer` and `conversation_id`; pass `--include-messages` to include the messages returned by Qwen's current 10-message read window. Use `models` to list current account-specific model labels; pass an exact label with `--model`. The selection is checked before submission. It supports `--thinking auto|thinking|fast`, `--mode web_dev|web_search|deep_research`, and optional `--attachment <local-file>`. It returns only after Qwen marks a nonempty assistant response complete. Qwen may be unavailable due to account limits or service load.
 
 Read commands list projects, folders, library items, and chats (`--page N` for later chat pages). Use `--window background` to keep Chrome automation out of the foreground. The adapter was verified from outside this directory with a live status request; OpenCLI still needs its connected, signed-in Chrome bridge.
 
