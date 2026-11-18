@@ -1,10 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { extractChatId, parseCompletedMessages, pollForResponse, validateAskArgs } from '../ask.js';
+import { captureConversationBaseline, extractChatId, openConversation, parseCompletedMessages, pollForResponse, readConversation, validateAskArgs } from '../ask.js';
+
+const newTurn = { baselineMessageIds: new Set(), prompt: 'hi' };
 
 test('validates prompt, thinking and requested modes', () => {
-  assert.deepEqual(validateAskArgs({ prompt: 'hi' }), { prompt: 'hi', thinking: 'auto', mode: '', timeout: 1800 });
-  assert.deepEqual(validateAskArgs({ prompt: 'hi', thinking: 'FAST', mode: 'web_search' }), { prompt: 'hi', thinking: 'fast', mode: 'web_search', timeout: 1800 });
+  assert.deepEqual(validateAskArgs({ prompt: 'hi' }), { prompt: 'hi', thinking: 'auto', mode: '', timeout: 1800, conversationId: '' });
+  assert.deepEqual(validateAskArgs({ prompt: 'hi', thinking: 'FAST', mode: 'web_search' }), { prompt: 'hi', thinking: 'fast', mode: 'web_search', timeout: 1800, conversationId: '' });
+  assert.equal(validateAskArgs({ prompt: 'hi', 'conversation-id': '517655ca-1935-48a1-ad44-49ecaf5e7da4' }).conversationId, '517655ca-1935-48a1-ad44-49ecaf5e7da4');
+  assert.throws(() => validateAskArgs({ prompt: 'hi', 'conversation-id': 'not-a-conversation-id' }), /conversation_id must be a valid Qwen conversation UUID/);
   assert.throws(() => validateAskArgs({ prompt: 'hi', thinking: 'slow' }), /thinking must be/);
   assert.throws(() => validateAskArgs({ prompt: 'hi', mode: 'create_image' }), /mode must be/);
   assert.throws(() => validateAskArgs({ prompt: ' ' }), /prompt is required/);
@@ -15,17 +19,47 @@ test('validates prompt, thinking and requested modes', () => {
   }
 });
 
+test('opens the requested conversation or starts a new one by default', async () => {
+  const calls = [];
+  const page = {
+    goto: async (url) => calls.push(['goto', url]),
+    click: async (selector) => calls.push(['click', selector]),
+  };
+  await openConversation(page, '517655ca-1935-48a1-ad44-49ecaf5e7da4');
+  await openConversation(page, '');
+  assert.deepEqual(calls, [
+    ['goto', 'https://chat.qwen.ai/c/517655ca-1935-48a1-ad44-49ecaf5e7da4'],
+    ['click', '[aria-label="New Chat"]'],
+  ]);
+});
+
+test('passes the response polling timeout to the page evaluation', async () => {
+  const page = { evaluate: async (_callback, args) => args };
+  assert.deepEqual(await readConversation(page, 'chat-id', 2750), { id: 'chat-id', timeoutMs: 2750 });
+});
+
+test('captures existing message IDs and fails closed when history is unavailable', async () => {
+  const payload = { success: true, data: { chat: { history: { messages: {
+    user: { id: 'old-user', role: 'user', content: 'old question' },
+    assistant: { id: 'old-assistant', role: 'assistant', content: 'old answer' },
+  } } } } };
+  const page = { evaluate: async () => ({ data: payload }) };
+  assert.deepEqual([...await captureConversationBaseline(page, 'chat-id', 3000)], ['old-user', 'old-assistant']);
+  await assert.rejects(() => captureConversationBaseline({ evaluate: async () => ({ pollError: { kind: 'http' } }) }, 'chat-id', 3000), /Could not establish the existing conversation history/);
+});
+
 test('retries transient response polling errors without retrying prompt submission', async () => {
   let reads = 0;
   const waits = [];
   const messages = { success: true, data: { chat: { history: { messages: {
-    assistant: { id: 'a', role: 'assistant', content: 'done', done: true },
+    user: { id: 'u', role: 'user', content: 'hi', timestamp: 1 },
+    assistant: { id: 'a', role: 'assistant', content: 'done', timestamp: 2, done: true },
   } } } } };
   const result = await pollForResponse(async () => {
     reads += 1;
     if (reads < 3) return { pollError: { kind: 'network' } };
     return { data: messages, generating: false };
-  }, async (seconds) => waits.push(seconds), 10000, () => 0);
+  }, async (seconds) => waits.push(seconds), 10000, () => 0, newTurn);
   assert.equal(reads, 3);
   assert.deepEqual(waits, [1, 1]);
   assert.equal(result.at(-1).content, 'done');
@@ -38,10 +72,11 @@ test('retries HTTP rate limits and server errors during response polling', async
       reads += 1;
       return reads === 1 ? { pollError: { kind: 'http', status } } : {
         data: { success: true, data: { chat: { history: { messages: {
-          assistant: { id: 'a', role: 'assistant', content: 'done', done: true },
+          user: { id: 'u', role: 'user', content: 'hi', timestamp: 1 },
+          assistant: { id: 'a', role: 'assistant', content: 'done', timestamp: 2, done: true },
         } } } } }, generating: false,
       };
-    }, async () => {}, 10000, () => 0);
+    }, async () => {}, 10000, () => 0, newTurn);
     assert.equal(reads, 2);
     assert.equal(result.at(-1).content, 'done');
   }
@@ -53,7 +88,7 @@ test('passes the remaining deadline to each response read', async () => {
   await assert.rejects(() => pollForResponse(async (timeoutMs) => {
     remaining.push(timeoutMs);
     return { pollError: { kind: 'network' } };
-  }, async (seconds) => { current += seconds * 1000; }, 2500, () => current), /Timed out/);
+  }, async (seconds) => { current += seconds * 1000; }, 2500, () => current, newTurn), /Timed out/);
   assert.deepEqual(remaining, [2500, 1500, 500]);
 });
 
@@ -98,20 +133,67 @@ test('returns only after Qwen marks the assistant message done and the UI is not
       assistant: { id: 'a', role: 'assistant', content: 'OK', timestamp: 2, done: true },
     } } } },
   };
-  assert.equal(parseCompletedMessages(payload, true), null);
-  assert.deepEqual(parseCompletedMessages(payload, false), [
+  assert.equal(parseCompletedMessages(payload, true, newTurn), null);
+  assert.deepEqual(parseCompletedMessages(payload, false, newTurn), [
     { id: 'u', role: 'user', content: 'hi', timestamp: 1 },
     { id: 'a', role: 'assistant', content: 'OK', timestamp: 2 },
   ]);
-  const responseWith = (assistant) => ({ success: true, data: { chat: { history: { messages: { assistant } } } } });
-  assert.equal(parseCompletedMessages(responseWith({ id: 'a', role: 'assistant', content: 'partial', done: false }), false), null);
-  assert.throws(() => parseCompletedMessages(responseWith({ id: 'a', role: 'assistant', content: '', done: true }), false), /without a response/);
+  const responseWith = (assistant) => ({ success: true, data: { chat: { history: { messages: {
+    user: { id: 'u', role: 'user', content: 'hi' }, assistant,
+  } } } } });
+  assert.equal(parseCompletedMessages(responseWith({ id: 'a', role: 'assistant', content: 'partial', done: false }), false, newTurn), null);
+  assert.throws(() => parseCompletedMessages(responseWith({ id: 'a', role: 'assistant', content: '', done: true }), false, newTurn), /without a response/);
+});
+
+test('does not accept a prior completed answer beside the just-submitted user turn', () => {
+  const payload = { success: true, data: { chat: { history: { messages: {
+    oldUser: { id: 'old-user', role: 'user', content: 'old question', timestamp: 1 },
+    oldAssistant: { id: 'old-assistant', role: 'assistant', content: 'old answer', timestamp: 2, done: true },
+    newUser: { id: 'new-user', role: 'user', content: 'new question', timestamp: 3 },
+  } } } } };
+  assert.equal(parseCompletedMessages(payload, false, {
+    baselineMessageIds: new Set(['old-user', 'old-assistant']), prompt: 'new question',
+  }), null);
+});
+
+test('does not complete a new user turn until its assistant message arrives', () => {
+  const payload = { success: true, data: { chat: { history: { messages: {
+    oldUser: { id: 'old-user', role: 'user', content: 'old question', timestamp: 1 },
+    oldAssistant: { id: 'old-assistant', role: 'assistant', content: 'old answer', timestamp: 2, done: true },
+    newUser: { id: 'new-user', role: 'user', content: 'new question', timestamp: 3 },
+  } } } } };
+  assert.equal(parseCompletedMessages(payload, false, {
+    baselineMessageIds: new Set(['old-user', 'old-assistant']), prompt: 'new question',
+  }), null);
+});
+
+test('accepts a completed assistant message after the matching new user turn', () => {
+  const payload = { success: true, data: { chat: { history: { messages: {
+    oldUser: { id: 'old-user', role: 'user', content: 'old question', timestamp: 1 },
+    oldAssistant: { id: 'old-assistant', role: 'assistant', content: 'old answer', timestamp: 2, done: true },
+    newUser: { id: 'new-user', role: 'user', content: 'new question', timestamp: 3 },
+    newAssistant: { id: 'new-assistant', role: 'assistant', content: 'new answer', timestamp: 4, done: true },
+  } } } } };
+  assert.equal(parseCompletedMessages(payload, false, {
+    baselineMessageIds: new Set(['old-user', 'old-assistant']), prompt: 'new question',
+  }).at(-1).content, 'new answer');
+});
+
+test('does not accept a completed historical chat without a new user turn', () => {
+  const payload = { success: true, data: { chat: { history: { messages: {
+    oldUser: { id: 'old-user', role: 'user', content: 'old question', timestamp: 1 },
+    oldAssistant: { id: 'old-assistant', role: 'assistant', content: 'old answer', timestamp: 2, done: true },
+  } } } } };
+  assert.equal(parseCompletedMessages(payload, false, {
+    baselineMessageIds: new Set(['old-user', 'old-assistant']), prompt: 'new question',
+  }), null);
 });
 
 test('preserves long, multiline, Unicode, and structured assistant text verbatim', () => {
   const content = `${'long answer '.repeat(2000)}\n雪と猫 🐈\n{"ok":true,"items":[1,2,3]}`;
   const payload = { success: true, data: { chat: { history: { messages: {
+    user: { id: 'u', role: 'user', content: 'hi' },
     assistant: { id: 'a', role: 'assistant', content, done: true },
   } } } } };
-  assert.equal(parseCompletedMessages(payload, false).at(-1).content, content);
+  assert.equal(parseCompletedMessages(payload, false, newTurn).at(-1).content, content);
 });

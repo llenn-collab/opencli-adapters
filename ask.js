@@ -14,24 +14,82 @@ export function validateAskArgs(args) {
   if (!Number.isInteger(timeout) || timeout < 10 || timeout > 3600) {
     throw new CommandExecutionError('timeout must be an integer between 10 and 3600 seconds');
   }
-  return { prompt: args.prompt, thinking, mode, timeout };
+  const conversationId = String(args['conversation-id'] ?? '');
+  if (conversationId && extractChatId(`/c/${conversationId}`) !== conversationId) {
+    throw new CommandExecutionError('conversation_id must be a valid Qwen conversation UUID');
+  }
+  return { prompt: args.prompt, thinking, mode, timeout, conversationId };
 }
 
 export function extractChatId(path) {
   return path?.match(/^\/c\/([0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})/i)?.[1];
 }
 
-export function parseCompletedMessages(payload, generating) {
+export async function openConversation(page, conversationId) {
+  if (conversationId) return page.goto(`https://chat.qwen.ai/c/${encodeURIComponent(conversationId)}`);
+  return page.click('[aria-label="New Chat"]');
+}
+
+export async function readConversation(page, id, timeoutMs) {
+  return page.evaluate(async ({ id, timeoutMs }) => {
+    const token = localStorage.getItem('token');
+    if (!token) throw new Error('Qwen localStorage token is missing; sign in to chat.qwen.ai first');
+    let response;
+    try {
+      response = await fetch(`/api/v2/chats/${encodeURIComponent(id)}?direction=up&limit=10`, {
+        credentials: 'include', headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+        signal: AbortSignal.timeout(Math.max(1, timeoutMs)),
+      });
+    } catch { return { pollError: { kind: 'network' } }; }
+    if (response.status === 401 || response.status === 403) return { pollError: { kind: 'auth', status: response.status } };
+    if (!response.ok) return { pollError: { kind: 'http', status: response.status } };
+    let data;
+    try { data = await response.json(); }
+    catch { return { pollError: { kind: 'invalid_json' } }; }
+    const generating = Boolean(document.querySelector('[aria-label*="Stop generating"], [aria-label*="Stop response"], [data-testid*="stop-generating"]'));
+    return { data, generating };
+  }, { id, timeoutMs });
+}
+
+function parseConversationMessages(payload) {
   if (payload?.success !== true) throw new CommandExecutionError('Qwen returned an unexpected conversation response');
   const messages = payload?.data?.chat?.history?.messages;
-  // A new chat can exist in the URL before its history endpoint is ready.
   if (!messages || typeof messages !== 'object' || Array.isArray(messages)) return null;
   const ordered = Object.values(messages);
   if (ordered.some((message) => typeof message?.id !== 'string' || typeof message.role !== 'string' || typeof message.content !== 'string')) {
     throw new CommandExecutionError('Qwen returned an unexpected message in the conversation response');
   }
   ordered.sort((a, b) => (a.timestamp ?? 0) - (b.timestamp ?? 0));
-  const assistant = ordered.filter((message) => message.role === 'assistant').at(-1);
+  return ordered;
+}
+
+export function conversationMessageIds(payload) {
+  const messages = parseConversationMessages(payload);
+  return messages ? new Set(messages.map((message) => message.id)) : null;
+}
+
+export async function captureConversationBaseline(page, conversationId, timeoutMs) {
+  let result;
+  try { result = await readConversation(page, conversationId, timeoutMs); }
+  catch (error) {
+    throw new CommandExecutionError(`Could not establish the existing conversation history before submitting: ${error.message}`);
+  }
+  if (result?.pollError) {
+    throw new CommandExecutionError(`Could not establish the existing conversation history before submitting (${result.pollError.kind})`);
+  }
+  const messageIds = conversationMessageIds(result?.data);
+  if (!messageIds) throw new CommandExecutionError('Could not establish the existing conversation history before submitting');
+  return messageIds;
+}
+
+export function parseCompletedMessages(payload, generating, { baselineMessageIds = new Set(), prompt } = {}) {
+  const ordered = parseConversationMessages(payload);
+  if (!ordered || typeof prompt !== 'string') return null;
+  const userIndex = ordered.findIndex((message) => !baselineMessageIds.has(message.id)
+    && message.role === 'user' && message.content === prompt);
+  if (userIndex < 0) return null;
+  const assistant = ordered.slice(userIndex + 1).findLast((message) => !baselineMessageIds.has(message.id)
+    && message.role === 'assistant');
   if (!assistant || assistant.done !== true || generating) return null;
   if (typeof assistant.content !== 'string' || !assistant.content) {
     throw new CommandExecutionError('Qwen completed the request without a response; check account limits or site errors');
@@ -39,7 +97,7 @@ export function parseCompletedMessages(payload, generating) {
   return ordered.map(({ id, role, content, timestamp }) => ({ id, role, content, timestamp: timestamp ?? null }));
 }
 
-export async function pollForResponse(read, wait, deadline, now = Date.now) {
+export async function pollForResponse(read, wait, deadline, now = Date.now, turn = {}) {
   let lastTransientError;
   while (now() < deadline) {
     const result = await read(deadline - now());
@@ -55,7 +113,7 @@ export async function pollForResponse(read, wait, deadline, now = Date.now) {
       }
       lastTransientError = kind === 'network' ? 'network errors' : `HTTP ${status}`;
     } else {
-      const messages = parseCompletedMessages(result?.data, result?.generating);
+      const messages = parseCompletedMessages(result?.data, result?.generating, turn);
       if (messages) return messages;
     }
     const remaining = deadline - now();
@@ -66,7 +124,7 @@ export async function pollForResponse(read, wait, deadline, now = Date.now) {
 }
 
 cli({
-  site: 'qwen-studio', name: 'ask', description: 'Start a new Qwen conversation and return its response',
+  site: 'qwen-studio', name: 'ask', description: 'Start or continue a Qwen conversation and return its response',
   access: 'write', strategy: Strategy.COOKIE, browser: true, domain: 'chat.qwen.ai',
   navigateBefore: false, siteSession: 'persistent',
   args: [
@@ -74,11 +132,12 @@ cli({
     { name: 'thinking', type: 'str', default: 'auto', choices: thinkingModes, help: 'Thinking mode' },
     { name: 'mode', type: 'str', help: 'Optional mode: web_dev, web_search, deep_research' },
     { name: 'attachment', type: 'str', help: 'Optional local file to attach' },
+    { name: 'conversation-id', type: 'str', help: 'Existing conversation ID to continue' },
     { name: 'timeout', type: 'int', default: 1800, help: 'Maximum seconds to wait for the assistant (10–3600)' },
   ],
-  columns: ['role', 'content'],
+  columns: ['conversation_id', 'messages'],
   func: async (page, args) => {
-    const { prompt, thinking, mode, timeout } = validateAskArgs(args);
+    const { prompt, thinking, mode, timeout, conversationId } = validateAskArgs(args);
     const currentUrl = await page.getCurrentUrl();
     if (!currentUrl?.startsWith('https://chat.qwen.ai/')) {
       throw new CommandExecutionError('Open the signed-in Qwen tab before using ask');
@@ -89,7 +148,14 @@ cli({
       if (!node) throw new Error(`Qwen control not found: ${text}`);
       node.click();
     }, { selector, text });
-    await page.click('[aria-label="New Chat"]');
+    await openConversation(page, conversationId);
+    await page.wait({ selector: 'textarea', timeout: 30 });
+    if (conversationId && extractChatId(await page.evaluate(() => location.pathname)) !== conversationId) {
+      throw new CommandExecutionError(`Qwen did not open conversation ${conversationId}`);
+    }
+    const baselineMessageIds = conversationId
+      ? await captureConversationBaseline(page, conversationId, Math.min(timeout * 1000, 10000))
+      : new Set();
     const chooseMode = async (label) => {
       await page.click('[aria-label="Select Mode"]');
       await page.wait({ selector: '[role="menuitem"]', timeout: 10 });
@@ -123,30 +189,13 @@ cli({
       await page.wait(0.5);
     }
     if (!chatId) throw new CommandExecutionError('Qwen did not open a conversation after sending the prompt');
-    const result = await pollForResponse(async () => {
-      try { return await page.evaluate(async ({ id, timeoutMs }) => {
-        const token = localStorage.getItem('token');
-        if (!token) throw new Error('Qwen localStorage token is missing; sign in to chat.qwen.ai first');
-        let response;
-        try {
-          response = await fetch(`/api/v2/chats/${encodeURIComponent(id)}?direction=up&limit=10`, {
-            credentials: 'include', headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
-            signal: AbortSignal.timeout(Math.max(1, timeoutMs)),
-          });
-        } catch { return { pollError: { kind: 'network' } }; }
-        if (response.status === 401 || response.status === 403) return { pollError: { kind: 'auth', status: response.status } };
-        if (!response.ok) return { pollError: { kind: 'http', status: response.status } };
-        let data;
-        try { data = await response.json(); }
-        catch { return { pollError: { kind: 'invalid_json' } }; }
-        const generating = Boolean(document.querySelector('[aria-label*="Stop generating"], [aria-label*="Stop response"], [data-testid*="stop-generating"]'));
-        return { data, generating };
-      }, { id: chatId, timeoutMs }); }
+    const result = await pollForResponse(async (timeoutMs) => {
+      try { return await readConversation(page, chatId, timeoutMs); }
       catch (error) {
         throw new CommandExecutionError(`Could not read the Qwen response in the current browser session: ${error.message}`);
       }
-    }, (seconds) => page.wait(seconds), deadline);
-    if (result) return result;
+    }, (seconds) => page.wait(seconds), deadline, Date.now, { baselineMessageIds, prompt });
+    if (result) return { conversation_id: chatId, messages: result };
     throw new CommandExecutionError(`Timed out waiting for Qwen response in conversation ${chatId}`);
   },
 });

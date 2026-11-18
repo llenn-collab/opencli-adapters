@@ -15,14 +15,14 @@ The localStorage token is read only inside the Qwen page context. Do not enable 
 
 ```sh
 if result=$(opencli qwen-studio ask 'Reply exactly: hello' --timeout 120 --format json); then
-  printf '%s\n' "$result" | jq -er '.data[] | select(.role == "assistant") | .content'
+  printf '%s\n' "$result" | jq -er '.data.messages[] | select(.role == "assistant") | .content'
 else
   printf '%s\n' 'Qwen ask failed; inspect the OpenCLI error above.' >&2
   exit 1
 fi
 ```
 
-The assistant message is the authoritative result; a conversation ID alone is not success. The command requires a nonempty completed assistant response. It retries only read-only polling after network errors or HTTP 429/5xx, within the same timeout. It never retries prompt submission automatically. If the process times out after submission, inspect `opencli qwen-studio chats` before manually retrying to avoid duplicate prompts.
+The assistant message is the authoritative result; a conversation ID alone is not success. The command requires a nonempty completed assistant response and returns `{ conversation_id, messages }`. It retries only read-only polling after network errors or HTTP 429/5xx, within the same timeout. It never retries prompt submission automatically. If the process times out after submission, inspect `opencli qwen-studio chats` before manually retrying to avoid duplicate prompts.
 
 ## Discover and retrieve a conversation
 
@@ -31,9 +31,14 @@ opencli qwen-studio chats --page 1 --format json
 opencli qwen-studio chat-detail '<conversation-id>' --format json
 ```
 
-`ask` currently returns message rows and does not include its conversation ID. Find the created conversation in `chats` and then use `chat-detail`. When multiple callers may create chats concurrently, this lookup is ambiguous; serialize prompt submissions if the exact conversation association matters.
+`ask` returns the ID for the chat it created. Use that ID to read the conversation or continue it:
 
-There is no command to continue an existing conversation, rename it, search it, delete it, or export it. `ask` always creates a new conversation. Do not treat `chat-detail` as a continuation mechanism.
+```sh
+opencli qwen-studio chat-detail '<conversation-id>' --format json
+opencli qwen-studio ask 'What number did I give you?' --conversation-id '<conversation-id>' --format json
+```
+
+With `--conversation-id`, `ask` opens the existing chat and submits through Qwen's composer, so Qwen uses its own stored history. It does not inject earlier messages into the prompt. Rename, search, delete, and export are not adapter commands.
 
 ## Consume structured output
 

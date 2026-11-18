@@ -28,10 +28,27 @@ Historical checks from the connected signed-in session (2026-11-18):
 - Auto, Fast, Web search, Web Dev, and Deep Research selections reached completion in the historical runs, but empty output means the modes' actual effects remain unverified.
 - Attachment through both adapter `page.setFileInput` and direct `opencli browser upload` stopped before submission with Chrome `{"code":-32000,"message":"Not allowed"}`. This is a browser permission/runtime limit; Qwen did not reject an upload.
 
+## Current run (2026-11-18)
+
+- `git fetch origin` confirmed `origin/main` at `6df2b87`; local `14883a9` is one commit ahead and is not on the remote. Work continued on `codex/qwen-live-conversation-phase` without resetting existing work.
+- The sandbox could not reach OpenCLI's host-local daemon. With host access, `opencli profile list` showed connected profile `qsfrjtn8` and extension `1.0.27`; `opencli qwen-studio status --window background` returned `logged_in: true`. Agent-browser independently loaded the signed-in Qwen page and observed HTTP 200 for status/config/model/chat-list reads.
+- One authorized prompt, `Reply exactly: hello`, created conversation `7e1b2505-122a-411b-aa7e-862d2372308a`. The ask command exited with `Could not read the Qwen response in the current browser session: timeoutMs is not defined`. A separate `chat-detail` read confirmed the user message and an empty assistant message. No prompt was resent; no nonempty live assistant response or multi-turn continuity is verified.
+- On the correct OpenCLI profile, Qwen's `#filesUpload` input was present, but `opencli browser upload` failed at Chrome DevTools Protocol `DOM.setFileInputFiles` with `{"code":-32000,"message":"Not allowed"}`. No Qwen upload request was observed. Agent-browser reported its selection action succeeded, but no file remained queued and no upload request followed; no supported upload method is established.
+
 Current audit run:
 
-- `opencli qwen-studio status --window background` and `opencli qwen-studio chats --page 1 --window background` did not return within the 30-second command window. No new live account result is claimed, and no prompt was sent during this run.
-- The latest `ask` changes are unit-tested but not live verified against the authenticated browser.
+- Host-access status and authenticated browser connectivity are verified as recorded above. Sandbox-only CLI reads fail because the sandbox cannot reach the host-local browser daemon.
+- `ask --conversation-id` has unit coverage, but live continuation remains unverified because the only live assistant record is empty.
+
+## Conversation continuation implementation checks (2026-11-18)
+
+- `node --test tests/*.test.js` — 27 passed, 0 failed, 0 skipped.
+- `node --test tests/ask.test.js` — 17 passed, 0 failed.
+- `opencli adapter check qwen-studio/ask` — passed with zero errors or warnings.
+- `opencli qwen-studio ask --help` — exposes `--conversation-id [value]`; OpenCLI 2.0.3 passes that schema option to the adapter as `args['conversation-id']`, which is covered by UUID validation tests.
+- Continuations capture existing message IDs through the read-only page-context history read before submission and fail closed if that baseline is unavailable. Polling requires a new user message matching the current prompt and a new completed assistant message after it.
+- The default JSON renderer serializes `{ conversation_id, messages }` under `data` and preserves the message array. OpenCLI's optional table renderer stringifies nested message objects as `[object Object]`; use default JSON for structured messages.
+- `git diff --check` — passed.
 
 ## Bili check
 
