@@ -4,6 +4,25 @@ import { askCommand, captureConversationBaseline, extractChatId, formatAskResult
 
 const newTurn = { baselineMessageIds: new Set(), prompt: 'hi' };
 
+test('matches completed replies by parent ID when Qwen returns equal timestamps out of order', () => {
+  const payload = { success: true, data: { chat: { history: { messages: {
+    a: { id: 'a', role: 'assistant', parentId: 'u', content: '', done: true, timestamp: 1, content_list: [{ phase: 'answer', status: 'finished', content: 'OK.' }] },
+    b: { id: 'b', role: 'assistant', parentId: 'u', content: '', done: true, timestamp: 1, content_list: [{ phase: 'answer', status: 'finished', content: 'OK.' }] },
+    u: { id: 'u', role: 'user', content: 'hi', timestamp: 1 },
+  } } } } };
+  const messages = parseCompletedMessages(payload, false, newTurn);
+  assert.equal(formatAskResult('chat', messages, false, newTurn).answer, 'OK.');
+  payload.data.chat.history.messages.a.content_list[0].content = 'different';
+  assert.throws(() => parseCompletedMessages(payload, false, newTurn), /multiple.*responses/);
+});
+
+test('does not blame an earlier network error after a successful read', async () => {
+  let now = 0;
+  let count = 0;
+  const result = await pollForResponse(async () => ++count === 1 ? { pollError: { kind: 'network' } } : { data: { success: true, data: {} } }, async () => { now += 1; }, 2, () => now, newTurn);
+  assert.equal(result, null);
+});
+
 test('fails before changing controls or submitting when browser visibility is unavailable', async () => {
   for (const visibility of ['hidden', undefined, new Error('disconnected')]) {
     const calls = [];

@@ -2,6 +2,13 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { parseChatDetail } from '../chat-detail.js';
 
+test('reads a finished answer component when top-level content is empty', () => {
+  const payload = { success: true, data: { chat: { history: { messages: {
+    a: { id: 'a', role: 'assistant', content: '', content_list: [{ phase: 'answer', status: 'finished', content: 'OK.' }] },
+  } } } } };
+  assert.equal(parseChatDetail(payload)[0].content, 'OK.');
+});
+
 test('parses conversation messages in timestamp order', () => {
   assert.deepEqual(parseChatDetail({ success: true, data: { chat: { history: { messages: {
     later: { id: 'b', role: 'assistant', content: '```js\nconsole.log(1)\n```', timestamp: 2 },

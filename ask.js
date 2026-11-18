@@ -1,6 +1,7 @@
 import { cli, Strategy } from '@jackwener/opencli/registry';
 import { CommandExecutionError } from '@jackwener/opencli/errors';
 import { selectModel } from './model-ui.mjs';
+import { messageContent } from './message-content.mjs';
 
 const modes = { web_dev: 'Web Dev', web_search: 'Web search', deep_research: 'Deep Research' };
 const thinkingModes = ['auto', 'thinking', 'fast'];
@@ -92,18 +93,23 @@ export function parseCompletedMessages(payload, generating, { baselineMessageIds
   const userIndex = ordered.findIndex((message) => !baselineMessageIds.has(message.id)
     && message.role === 'user' && message.content === prompt);
   if (userIndex < 0) return null;
-  const assistant = ordered.slice(userIndex + 1).findLast((message) => !baselineMessageIds.has(message.id)
-    && message.role === 'assistant');
-  if (!assistant || assistant.done !== true || generating) return null;
-  const answerParts = Array.isArray(assistant.content_list)
-    ? assistant.content_list.filter((part) => part?.phase === 'answer' && part.status === 'finished' && typeof part.content === 'string' && part.content)
-    : [];
-  if (!assistant.content && answerParts.length > 1) throw new CommandExecutionError('Qwen returned multiple answer components; cannot verify the complete response');
-  const answer = assistant.content || answerParts[0]?.content;
+  const user = ordered[userIndex];
+  const linked = ordered.filter((message) => !baselineMessageIds.has(message.id)
+    && message.role === 'assistant' && message.parentId === user.id);
+  const assistants = linked.length ? linked : ordered.slice(userIndex + 1).filter((message) => !baselineMessageIds.has(message.id)
+    && message.role === 'assistant' && message.parentId == null).slice(-1);
+  if (!assistants.length || assistants.some((message) => message.done !== true) || generating) return null;
+  const answers = assistants.map(messageContent);
+  if (new Set(answers).size > 1) throw new CommandExecutionError('Qwen returned multiple different responses for this turn; cannot verify the intended response');
+  const answer = answers[0];
   if (!answer) {
     throw new CommandExecutionError('Qwen completed the request without a response; check account limits or site errors');
   }
-  return ordered.map(({ id, role, content, timestamp }) => ({ id, role, content: id === assistant.id ? answer : content, timestamp: timestamp ?? null }));
+  const assistantIds = new Set(assistants.map((message) => message.id));
+  const inTurnOrder = linked.length
+    ? [...ordered.filter((message) => message.id !== user.id && !assistantIds.has(message.id)), user, ...assistants]
+    : ordered;
+  return inTurnOrder.map(({ id, role, content, timestamp }) => ({ id, role, content: assistantIds.has(id) ? answer : content, timestamp: timestamp ?? null }));
 }
 
 export function formatAskResult(conversationId, messages, includeMessages = false, { prompt, baselineMessageIds = new Set() } = {}) {
@@ -133,6 +139,7 @@ export async function pollForResponse(read, wait, deadline, now = Date.now, turn
       }
       lastTransientError = kind === 'network' ? 'network errors' : `HTTP ${status}`;
     } else {
+      lastTransientError = undefined;
       const messages = parseCompletedMessages(result?.data, result?.generating, turn);
       if (messages) return messages;
     }

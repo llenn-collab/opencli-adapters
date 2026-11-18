@@ -1,6 +1,7 @@
 import { cli, Strategy } from '@jackwener/opencli/registry';
 import { CommandExecutionError } from '@jackwener/opencli/errors';
 import { qwenApiJson } from './qwen-api.mjs';
+import { messageContent } from './message-content.mjs';
 
 export function parseChatDetail(payload) {
   const messages = payload?.data?.chat?.history?.messages;
@@ -11,7 +12,7 @@ export function parseChatDetail(payload) {
     if (typeof message?.id !== 'string' || typeof message.role !== 'string' || typeof message.content !== 'string') {
       throw new CommandExecutionError('Qwen returned a message without an ID, role, or text');
     }
-    return { id: message.id, role: message.role, content: message.content, timestamp: message.timestamp ?? null };
+    return { id: message.id, role: message.role, content: messageContent(message), timestamp: message.timestamp ?? null };
   }).sort((a, b) => (a.timestamp ?? 0) - (b.timestamp ?? 0));
 }
 

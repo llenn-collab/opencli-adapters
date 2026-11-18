@@ -22,7 +22,7 @@ else
 fi
 ```
 
-The assistant message is the authoritative result; a conversation ID alone is not success. The command requires a nonempty completed assistant response and returns `{ answer, conversation_id }` by default. Pass `--include-messages` to also return the messages in Qwen's current 10-message read window; this is not guaranteed to be the full conversation history. It retries only read-only polling after network errors or HTTP 429/5xx, within the same timeout. It never retries prompt submission automatically. If the process times out after submission, inspect `opencli qwen-studio chats` before manually retrying to avoid duplicate prompts.
+The assistant message is the authoritative result; a conversation ID alone is not success. The command requires a nonempty completed assistant response and returns `{ answer, conversation_id }` by default. Pass `--include-messages` to also return the messages in Qwen's current 10-message read window; this is not guaranteed to be the full conversation history. The adapter uses Qwen's parent links when available, and fails closed if sibling responses disagree. It retries only read-only polling after network errors or HTTP 429/5xx, within the same timeout. It never retries prompt submission automatically. If the process times out after submission, inspect `opencli qwen-studio chats` and then `chat-detail` before manually retrying to avoid duplicate prompts. `chat-detail` includes a finished answer component when the top-level message text is empty.
 
 ## Discover and retrieve a conversation
 
