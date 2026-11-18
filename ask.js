@@ -10,7 +10,11 @@ export function validateAskArgs(args) {
   if (!thinkingModes.includes(thinking)) throw new CommandExecutionError('thinking must be auto, thinking, or fast');
   if (mode && !Object.hasOwn(modes, mode)) throw new CommandExecutionError('mode must be web_dev, web_search, or deep_research');
   if (typeof args.prompt !== 'string' || !args.prompt.trim()) throw new CommandExecutionError('prompt is required');
-  return { prompt: args.prompt, thinking, mode };
+  const timeout = Number(args.timeout ?? 1800);
+  if (!Number.isInteger(timeout) || timeout < 10 || timeout > 3600) {
+    throw new CommandExecutionError('timeout must be an integer between 10 and 3600 seconds');
+  }
+  return { prompt: args.prompt, thinking, mode, timeout };
 }
 
 export function extractChatId(path) {
@@ -18,16 +22,47 @@ export function extractChatId(path) {
 }
 
 export function parseCompletedMessages(payload, generating) {
+  if (payload?.success !== true) throw new CommandExecutionError('Qwen returned an unexpected conversation response');
   const messages = payload?.data?.chat?.history?.messages;
   // A new chat can exist in the URL before its history endpoint is ready.
-  if (payload?.success !== true || !messages || typeof messages !== 'object' || Array.isArray(messages)) return null;
-  const ordered = Object.values(messages).sort((a, b) => (a.timestamp ?? 0) - (b.timestamp ?? 0));
+  if (!messages || typeof messages !== 'object' || Array.isArray(messages)) return null;
+  const ordered = Object.values(messages);
+  if (ordered.some((message) => typeof message?.id !== 'string' || typeof message.role !== 'string' || typeof message.content !== 'string')) {
+    throw new CommandExecutionError('Qwen returned an unexpected message in the conversation response');
+  }
+  ordered.sort((a, b) => (a.timestamp ?? 0) - (b.timestamp ?? 0));
   const assistant = ordered.filter((message) => message.role === 'assistant').at(-1);
   if (!assistant || assistant.done !== true || generating) return null;
   if (typeof assistant.content !== 'string' || !assistant.content) {
     throw new CommandExecutionError('Qwen completed the request without a response; check account limits or site errors');
   }
   return ordered.map(({ id, role, content, timestamp }) => ({ id, role, content, timestamp: timestamp ?? null }));
+}
+
+export async function pollForResponse(read, wait, deadline, now = Date.now) {
+  let lastTransientError;
+  while (now() < deadline) {
+    const result = await read(deadline - now());
+    if (result?.pollError) {
+      const { kind, status } = result.pollError;
+      const retryable = kind === 'network' || (kind === 'http' && (status === 429 || status >= 500));
+      if (!retryable) {
+        const reason = kind === 'auth' ? `authentication failed: HTTP ${status}`
+          : kind === 'http' ? `conversation read failed: HTTP ${status}`
+            : kind === 'invalid_json' ? 'conversation response was not valid JSON'
+              : 'conversation request failed';
+        throw new CommandExecutionError(`Qwen ${reason}`);
+      }
+      lastTransientError = kind === 'network' ? 'network errors' : `HTTP ${status}`;
+    } else {
+      const messages = parseCompletedMessages(result?.data, result?.generating);
+      if (messages) return messages;
+    }
+    const remaining = deadline - now();
+    if (remaining > 0) await wait(Math.min(1, remaining / 1000));
+  }
+  if (lastTransientError) throw new CommandExecutionError(`Timed out waiting for Qwen response after transient ${lastTransientError}`);
+  return null;
 }
 
 cli({
@@ -43,8 +78,7 @@ cli({
   ],
   columns: ['role', 'content'],
   func: async (page, args) => {
-    const { prompt, thinking, mode } = validateAskArgs(args);
-    const timeout = Math.min(Math.max(Number(args.timeout ?? 1800), 10), 3600);
+    const { prompt, thinking, mode, timeout } = validateAskArgs(args);
     const currentUrl = await page.getCurrentUrl();
     if (!currentUrl?.startsWith('https://chat.qwen.ai/')) {
       throw new CommandExecutionError('Open the signed-in Qwen tab before using ask');
@@ -89,23 +123,30 @@ cli({
       await page.wait(0.5);
     }
     if (!chatId) throw new CommandExecutionError('Qwen did not open a conversation after sending the prompt');
-    while (Date.now() < deadline) {
-      const payload = await page.evaluate(async (id) => {
+    const result = await pollForResponse(async () => {
+      try { return await page.evaluate(async ({ id, timeoutMs }) => {
         const token = localStorage.getItem('token');
         if (!token) throw new Error('Qwen localStorage token is missing; sign in to chat.qwen.ai first');
-        const response = await fetch(`/api/v2/chats/${encodeURIComponent(id)}?direction=up&limit=10`, {
-          credentials: 'include', headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
-        });
-        if (response.status === 401 || response.status === 403) throw new Error(`Qwen API authentication failed: HTTP ${response.status}`);
-        if (!response.ok) throw new Error(`Qwen conversation read failed: HTTP ${response.status}`);
-        const data = await response.json();
+        let response;
+        try {
+          response = await fetch(`/api/v2/chats/${encodeURIComponent(id)}?direction=up&limit=10`, {
+            credentials: 'include', headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+            signal: AbortSignal.timeout(Math.max(1, timeoutMs)),
+          });
+        } catch { return { pollError: { kind: 'network' } }; }
+        if (response.status === 401 || response.status === 403) return { pollError: { kind: 'auth', status: response.status } };
+        if (!response.ok) return { pollError: { kind: 'http', status: response.status } };
+        let data;
+        try { data = await response.json(); }
+        catch { return { pollError: { kind: 'invalid_json' } }; }
         const generating = Boolean(document.querySelector('[aria-label*="Stop generating"], [aria-label*="Stop response"], [data-testid*="stop-generating"]'));
         return { data, generating };
-      }, chatId);
-      const result = parseCompletedMessages(payload?.data, payload?.generating);
-      if (result) return result;
-      await page.wait(1);
-    }
+      }, { id: chatId, timeoutMs }); }
+      catch (error) {
+        throw new CommandExecutionError(`Could not read the Qwen response in the current browser session: ${error.message}`);
+      }
+    }, (seconds) => page.wait(seconds), deadline);
+    if (result) return result;
     throw new CommandExecutionError(`Timed out waiting for Qwen response in conversation ${chatId}`);
   },
 });

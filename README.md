@@ -25,3 +25,5 @@ Read commands list projects, folders, library items, and chats (`--page N` for l
 `code-output` extracts fenced code blocks from supplied response text. Add `--output <new-path>` to save one block (`--index` is one-based); existing files are never overwritten. Pass the response text explicitly, for example from a saved `ask` result.
 
 See [command reference](docs/commands.md), [coverage](docs/coverage.md), [architecture](docs/architecture.md), and [verification](docs/verification.md). This adapter does not implement the rest of Qwen's visible UI; coverage is stated explicitly.
+
+For Codex and shell automation, OpenCLI already provides JSON output and a nonzero process exit on command failure; see the [agent integration guide](docs/agent-integration.md). Ask starts a new chat and currently returns message rows without the conversation ID. Existing-chat continuation, rename, delete, and export are not adapter commands.
