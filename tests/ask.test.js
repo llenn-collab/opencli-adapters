@@ -55,6 +55,7 @@ function submissionPage({ conversationId = '', openedId, pollError, pressError }
     evaluate: async (fn, args) => {
       const source = String(fn);
       if (source.includes('visibilityState')) return 'visible';
+      if (source.includes('data-qwen-readiness')) return 'ready';
       if (source.includes('location.pathname')) return `/c/${paths++ === 0 && conversationId ? conversationId : openedId}`;
       if (args?.id) return args.id === conversationId && paths === 1
         ? { data: { success: true, data: { chat: { history: { messages: {} } } } } }
@@ -348,4 +349,12 @@ test('uses a finished answer component when top-level content is empty', () => {
 test('rejects invalid model arguments without affecting thinking validation', () => {
   for (const model of ['', '  ', 3]) assert.throws(() => validateAskArgs({ prompt: 'hi', model }), /model must be/);
   assert.equal(validateAskArgs({ prompt: 'hi', model: 'Model A', thinking: 'thinking' }).thinking, 'thinking');
+});
+
+test('stops before submission when Qwen requires verification', async () => {
+  const page = submissionPage();
+  const evaluate = page.evaluate;
+  page.evaluate = async (fn, args) => String(fn).includes('data-qwen-readiness') ? 'verification' : evaluate(fn, args);
+  await assert.rejects(() => askCommand.func(page, { prompt: 'hi' }), /verification.*manually/i);
+  assert.equal(page.submissions, 0);
 });

@@ -165,6 +165,33 @@ export async function assertInputVisible(page) {
   }
 }
 
+export async function assertPageReady(page) {
+  const state = await page.evaluate(() => {
+    // data-qwen-readiness: inspect only visible controls and dialogs.
+    if (location.origin !== 'https://chat.qwen.ai') return 'wrong_page';
+    const visible = (node) => node && node.getClientRects().length > 0 && getComputedStyle(node).visibility !== 'hidden';
+    const dialogs = [...document.querySelectorAll('[role="dialog"], [aria-modal="true"]')].filter(visible);
+    if (dialogs.some((node) => /birth|age verification|year of birth/i.test(node.innerText))) return 'verification';
+    if (dialogs.length) return 'blocked';
+    if (!localStorage.getItem('token')) return 'login';
+    const input = document.querySelector('textarea');
+    return visible(input) && !input.disabled ? 'ready' : 'loading';
+  });
+  if (state === 'wrong_page') throw new CommandExecutionError('Qwen page changed; prompt was not submitted');
+  if (state === 'verification') throw new CommandExecutionError('Qwen age verification required; complete it manually in the connected browser. Prompt was not submitted');
+  if (state === 'blocked') throw new CommandExecutionError('Qwen requires action in the connected browser; resolve the dialog manually. Prompt was not submitted');
+  if (state === 'login') throw new CommandExecutionError('Qwen sign-in required; sign in in the connected browser. Prompt was not submitted');
+  return state === 'ready';
+}
+
+async function waitForPageReady(page) {
+  for (let i = 0; i < 30; i++) {
+    if (await assertPageReady(page)) return;
+    await page.wait(1);
+  }
+  throw new CommandExecutionError('Qwen composer was not ready within 30 seconds; prompt was not submitted');
+}
+
 export const askCommand = cli({
   site: 'qwen-studio', name: 'ask', description: 'Start or continue a Qwen conversation and return its response',
   access: 'write', strategy: Strategy.COOKIE, browser: true, domain: 'chat.qwen.ai',
@@ -191,6 +218,7 @@ export const askCommand = cli({
       throw new CommandExecutionError('Open the signed-in Qwen tab before using ask');
     }
     await assertInputVisible(page);
+    await waitForPageReady(page);
     await page.wait({ selector: '[aria-label="New Chat"]', timeout: 30 });
     const clickText = async (selector, text) => page.evaluate(({ selector, text }) => {
       const node = [...document.querySelectorAll(selector)].find((element) => element.textContent.replace(/\s+/g, ' ').trim().startsWith(text));
@@ -198,7 +226,7 @@ export const askCommand = cli({
       node.click();
     }, { selector, text });
     await openConversation(page, conversationId);
-    await page.wait({ selector: 'textarea', timeout: 30 });
+    await waitForPageReady(page);
     if (conversationId && extractChatId(await page.evaluate(() => location.pathname)) !== conversationId) {
       throw new CommandExecutionError(`Qwen did not open conversation ${conversationId}`);
     }
@@ -228,6 +256,7 @@ export const askCommand = cli({
       }
     }
     if (mode) await chooseMode(modes[mode]);
+    await waitForPageReady(page);
     await page.fillText('textarea', prompt);
     let chatId = conversationId || undefined;
     try {

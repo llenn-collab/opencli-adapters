@@ -2,6 +2,12 @@
 
 OpenCLI is the supported automation interface. It defaults to JSON, offers structured command metadata, and exits nonzero when a command fails. No separate MCP server or wrapper is needed.
 
+## Session coordination
+
+For every Qwen browser command in a shared Browser Bridge session, set `OPENCLI_SITE_SLOTS=qwen-studio:1` before starting OpenCLI. All concurrent callers must use this setting; persistent sessions alone do not serialize reads. Explicit ephemeral sessions opt out, and the pool does not support direct CDP. Complete any sign-in or age verification manually in the connected browser.
+
+For each delegated task, save the returned `.data.conversation_id` and pass it as `--conversation-id` on follow-up requests. Start a new task without that option; never select the latest conversation implicitly.
+
 ## Prerequisites
 
 - Install this plugin with OpenCLI.

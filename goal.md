@@ -8,6 +8,10 @@
 
 I inspected the latest repository code and verification records. The recent changes are present, including the response parser improvements and the new `message-content.mjs` module.
 
+## Current priority
+
+Stabilize and verify browser session reuse, page readiness, manual verification, and coordinated commands before resuming upload and additional mode investigation. See `docs/agent-integration.md` for the single-slot Browser Bridge configuration and task-scoped conversation IDs.
+
 ## **1. What is the actual goal?**
 
 Build an OpenCLI adapter that lets Codex use the free Qwen Studio website as an external AI assistant.

@@ -49,7 +49,7 @@ test('does not change an already selected model', async () => {
 test('models rejects an unauthenticated account before opening the menu', async () => {
   const { listModels } = await import('../models.js');
   let clicks = 0;
-  const page = { goto: async () => {}, evaluate: async () => ({ success: true, data: false }),
+  const page = { getCurrentUrl: async () => 'https://chat.qwen.ai/', evaluate: async () => ({ success: true, data: false }),
     click: async () => { clicks += 1; } };
   await assert.rejects(() => listModels(page), /not signed in/);
   assert.equal(clicks, 0);
@@ -58,7 +58,7 @@ test('models rejects an unauthenticated account before opening the menu', async 
 test('models propagates authentication errors without opening the menu', async () => {
   const { listModels } = await import('../models.js');
   let clicks = 0;
-  const page = { goto: async () => {}, evaluate: async () => { throw new Error('Qwen API authentication failed: HTTP 401'); },
+  const page = { getCurrentUrl: async () => 'https://chat.qwen.ai/', evaluate: async () => { throw new Error('Qwen API authentication failed: HTTP 401'); },
     click: async () => { clicks += 1; } };
   await assert.rejects(() => listModels(page), /authentication failed: HTTP 401/);
   assert.equal(clicks, 0);
