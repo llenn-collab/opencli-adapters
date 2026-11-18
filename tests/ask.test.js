@@ -1,8 +1,22 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { captureConversationBaseline, extractChatId, formatAskResult, openConversation, parseCompletedMessages, pollForResponse, readConversation, validateAskArgs } from '../ask.js';
+import { askCommand, captureConversationBaseline, extractChatId, formatAskResult, openConversation, parseCompletedMessages, pollForResponse, readConversation, validateAskArgs } from '../ask.js';
 
 const newTurn = { baselineMessageIds: new Set(), prompt: 'hi' };
+
+test('fails before changing controls or submitting when browser visibility is unavailable', async () => {
+  for (const visibility of ['hidden', undefined, new Error('disconnected')]) {
+    const calls = [];
+    const page = {
+      getCurrentUrl: async () => 'https://chat.qwen.ai/',
+      evaluate: async () => { calls.push('visibility'); if (visibility instanceof Error) throw visibility; return visibility; },
+      click: async () => calls.push('click'), goto: async () => calls.push('goto'),
+      wait: async () => calls.push('wait'), fillText: async () => calls.push('fill'), pressKey: async () => calls.push('submit'),
+    };
+    await assert.rejects(() => askCommand.func(page, { prompt: 'hi', model: 'Model A' }), /visibility could not be checked; prompt was not submitted/);
+    assert.deepEqual(calls, ['visibility']);
+  }
+});
 
 test('validates prompt, thinking and requested modes', () => {
   assert.deepEqual(validateAskArgs({ prompt: 'hi' }), { prompt: 'hi', thinking: 'auto', mode: '', timeout: 1800, conversationId: '' });

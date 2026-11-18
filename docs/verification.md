@@ -58,6 +58,12 @@ Current audit run:
 
 Never include account tokens or private chat contents in logs or fixtures. The account authorized small test prompts in the prior verification; prompts can consume usage. Avoid retrying a timed-out write until checking the chat list.
 
+## Input visibility preflight
+
+`ask` checks the page's `document.visibilityState` before opening a conversation or changing submission controls, matching the visibility condition used by the installed OpenCLI native-input guard. If it is not `visible` or cannot be read, the command fails before submitting. This is a point-in-time visibility check, not a guarantee that the window is unobscured or remains visible; OpenCLI can still reject native input later. Select the Qwen tab and restore its window before running `ask`.
+
+Live check: signed-in status succeeded. A separate foreground Qwen page reported `visible` and had a textarea. `models` returned Qwen3.7-Plus, Qwen4-Max (selected), and Qwen3.8-Max. The first `ask --model Qwen4-Max --window foreground` failed the preflight with `Qwen browser page is not visible or its visibility could not be checked; prompt was not submitted`. No prompt retry or continuation was attempted. Visibility of the separate page does not establish visibility of the adapter's page.
+
 ## Phase 2 baseline and read-only investigation (2026-11-18)
 
 - Branch `main`, HEAD and fetched `origin/main` both `18466383dd3e0c03e83eaf18fb624f627eb6317f`; unrelated worktree changes were preserved.

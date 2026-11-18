@@ -143,7 +143,17 @@ export async function pollForResponse(read, wait, deadline, now = Date.now, turn
   return null;
 }
 
-cli({
+export async function assertInputVisible(page) {
+  let visibility;
+  try { visibility = await page.evaluate(() => document.visibilityState); }
+  catch { /* Fail closed when visibility cannot be checked. */ }
+  if (visibility !== 'visible') {
+    throw new CommandExecutionError('Qwen browser page is not visible or its visibility could not be checked; prompt was not submitted',
+      'Select the Qwen tab and restore its browser window, then retry.');
+  }
+}
+
+export const askCommand = cli({
   site: 'qwen-studio', name: 'ask', description: 'Start or continue a Qwen conversation and return its response',
   access: 'write', strategy: Strategy.COOKIE, browser: true, domain: 'chat.qwen.ai',
   navigateBefore: false, siteSession: 'persistent',
@@ -164,6 +174,7 @@ cli({
     if (!currentUrl?.startsWith('https://chat.qwen.ai/')) {
       throw new CommandExecutionError('Open the signed-in Qwen tab before using ask');
     }
+    await assertInputVisible(page);
     await page.wait({ selector: '[aria-label="New Chat"]', timeout: 30 });
     const clickText = async (selector, text) => page.evaluate(({ selector, text }) => {
       const node = [...document.querySelectorAll(selector)].find((element) => element.textContent.replace(/\s+/g, ' ').trim().startsWith(text));
