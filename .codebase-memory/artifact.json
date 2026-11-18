@@ -1,11 +1,11 @@
 {
     "schema_version": 2,
-    "commit": "HEAD",
-    "indexed_at": "2026-11-18T09:10:45Z",
+    "commit": "a9d58c0575dc84c395008e0c71c08a223412dc60",
+    "indexed_at": "2026-11-18T11:03:51Z",
     "project": "Users-llenn-Documents-GitHub-temp",
-    "nodes": 166,
-    "edges": 306,
-    "original_size": 3211264,
-    "compressed_size": 202494,
+    "nodes": 187,
+    "edges": 331,
+    "original_size": 3342336,
+    "compressed_size": 224408,
     "compression_level": 3
 }

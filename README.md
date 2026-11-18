@@ -19,7 +19,7 @@ opencli qwen-studio ask "Search for current weather" --mode web_search
 opencli qwen-studio code-output '<assistant response text>'
 ```
 
-`ask` starts a new Qwen conversation by default. Pass `--conversation-id <id>` to open and continue an existing conversation through Qwen's UI; its stored history remains available to Qwen. The result includes `conversation_id` and `messages`. It supports `--thinking auto|thinking|fast`, `--mode web_dev|web_search|deep_research`, and optional `--attachment <local-file>`. It returns only after Qwen marks a nonempty assistant response complete. Qwen may be unavailable due to account limits or service load.
+`ask` starts a new Qwen conversation by default. Pass `--conversation-id <id>` to open and continue an existing conversation through Qwen's UI; its stored history remains available to Qwen. The default JSON data includes only `answer` and `conversation_id`; pass `--include-messages` to include the messages returned by Qwen's current 10-message read window. It supports `--thinking auto|thinking|fast`, `--mode web_dev|web_search|deep_research`, and optional `--attachment <local-file>`. It returns only after Qwen marks a nonempty assistant response complete. Qwen may be unavailable due to account limits or service load.
 
 Read commands list projects, folders, library items, and chats (`--page N` for later chat pages). Use `--window background` to keep Chrome automation out of the foreground. The adapter was verified from outside this directory with a live status request; OpenCLI still needs its connected, signed-in Chrome bridge.
 

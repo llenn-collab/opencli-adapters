@@ -15,14 +15,14 @@ The localStorage token is read only inside the Qwen page context. Do not enable 
 
 ```sh
 if result=$(opencli qwen-studio ask 'Reply exactly: hello' --timeout 120 --format json); then
-  printf '%s\n' "$result" | jq -er '.data.messages[] | select(.role == "assistant") | .content'
+  printf '%s\n' "$result" | jq -er '.data.answer'
 else
   printf '%s\n' 'Qwen ask failed; inspect the OpenCLI error above.' >&2
   exit 1
 fi
 ```
 
-The assistant message is the authoritative result; a conversation ID alone is not success. The command requires a nonempty completed assistant response and returns `{ conversation_id, messages }`. It retries only read-only polling after network errors or HTTP 429/5xx, within the same timeout. It never retries prompt submission automatically. If the process times out after submission, inspect `opencli qwen-studio chats` before manually retrying to avoid duplicate prompts.
+The assistant message is the authoritative result; a conversation ID alone is not success. The command requires a nonempty completed assistant response and returns `{ answer, conversation_id }` by default. Pass `--include-messages` to also return the messages in Qwen's current 10-message read window; this is not guaranteed to be the full conversation history. It retries only read-only polling after network errors or HTTP 429/5xx, within the same timeout. It never retries prompt submission automatically. If the process times out after submission, inspect `opencli qwen-studio chats` before manually retrying to avoid duplicate prompts.
 
 ## Discover and retrieve a conversation
 

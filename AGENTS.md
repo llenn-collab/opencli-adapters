@@ -10,7 +10,9 @@
 
 ## Delegation
 
-- Use the project `builder` agent for clearly specified implementation work. It uses `gpt-6-luna` and should keep changes within the requested scope.
-- Consult the project `advisor` agent, using `gpt-6.1-sol`, when requirements or technical choices are uncertain, when risk is high, or after one evidence-guided builder repair fails. The advisor gives read-only analysis and recommendations; it does not implement changes.
-- The primary agent coordinates the task, decides whether delegation is useful, reviews delegated results, and owns the final verification. Do not run repeated builder/advisor correction loops.
-- Both agents inherit the parent session's permissions and tools. Agent instructions do not grant separate filesystem or approval permissions.
+- Use the project `builder` agent for implementation work; keep changes within the requested scope.
+- Use the read-only `advisor` agent for uncertain technical decisions. Keep advisor responses short and actionable.
+- Use `error_advisor` only for a major functional or security failure, a critical integration failure, a serious regression, or after one evidence-based repair fails to resolve a major error. Send it the exact failure evidence.
+- Only the primary agent or builder may apply fixes. Advisors provide recommendations only and must not implement.
+- Do not run repeated advisor escalation loops.
+- Both agents inherit the parent session's permissions and tools. Agent instructions do not grant separate read-only permissions or a sandbox.

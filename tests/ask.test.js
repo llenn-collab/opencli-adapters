@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { captureConversationBaseline, extractChatId, openConversation, parseCompletedMessages, pollForResponse, readConversation, validateAskArgs } from '../ask.js';
+import { captureConversationBaseline, extractChatId, formatAskResult, openConversation, parseCompletedMessages, pollForResponse, readConversation, validateAskArgs } from '../ask.js';
 
 const newTurn = { baselineMessageIds: new Set(), prompt: 'hi' };
 
@@ -31,6 +31,21 @@ test('opens the requested conversation or starts a new one by default', async ()
     ['goto', 'https://chat.qwen.ai/c/517655ca-1935-48a1-ad44-49ecaf5e7da4'],
     ['click', '[aria-label="New Chat"]'],
   ]);
+});
+
+test('formats compact ask output and includes fetched messages only when requested', () => {
+  const messages = [
+    { id: 'old-user', role: 'user', content: 'hi' },
+    { id: 'old-answer', role: 'assistant', content: 'earlier answer' },
+    { id: 'new-user', role: 'user', content: 'hi' },
+    { id: 'new-answer', role: 'assistant', content: 'current answer' },
+  ];
+  const turn = { prompt: 'hi', baselineMessageIds: new Set(['old-user', 'old-answer']) };
+  assert.deepEqual(formatAskResult('chat-id', messages, false, turn), { answer: 'current answer', conversation_id: 'chat-id' });
+  assert.deepEqual(formatAskResult('chat-id', messages, true, turn), {
+    answer: 'current answer', conversation_id: 'chat-id', messages,
+  });
+  assert.throws(() => formatAskResult('chat-id', [{ role: 'user', content: 'question' }], false, { prompt: 'question' }), /without a response/);
 });
 
 test('passes the response polling timeout to the page evaluation', async () => {

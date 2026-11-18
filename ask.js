@@ -97,6 +97,17 @@ export function parseCompletedMessages(payload, generating, { baselineMessageIds
   return ordered.map(({ id, role, content, timestamp }) => ({ id, role, content, timestamp: timestamp ?? null }));
 }
 
+export function formatAskResult(conversationId, messages, includeMessages = false, { prompt, baselineMessageIds = new Set() } = {}) {
+  const userIndex = messages?.findIndex((message) => !baselineMessageIds.has(message.id)
+    && message.role === 'user' && message.content === prompt);
+  const answer = userIndex >= 0 && messages.slice(userIndex + 1).findLast((message) => !baselineMessageIds.has(message.id)
+    && message.role === 'assistant');
+  if (answer?.role !== 'assistant' || !answer.content) {
+    throw new CommandExecutionError('Qwen completed the request without a response; check account limits or site errors');
+  }
+  return { answer: answer.content, conversation_id: conversationId, ...(includeMessages ? { messages } : {}) };
+}
+
 export async function pollForResponse(read, wait, deadline, now = Date.now, turn = {}) {
   let lastTransientError;
   while (now() < deadline) {
@@ -133,9 +144,10 @@ cli({
     { name: 'mode', type: 'str', help: 'Optional mode: web_dev, web_search, deep_research' },
     { name: 'attachment', type: 'str', help: 'Optional local file to attach' },
     { name: 'conversation-id', type: 'str', help: 'Existing conversation ID to continue' },
+    { name: 'include-messages', type: 'bool', default: false, help: 'Include messages returned by Qwen (up to 10)' },
     { name: 'timeout', type: 'int', default: 1800, help: 'Maximum seconds to wait for the assistant (10–3600)' },
   ],
-  columns: ['conversation_id', 'messages'],
+  columns: ['answer', 'conversation_id'],
   func: async (page, args) => {
     const { prompt, thinking, mode, timeout, conversationId } = validateAskArgs(args);
     const currentUrl = await page.getCurrentUrl();
@@ -195,7 +207,7 @@ cli({
         throw new CommandExecutionError(`Could not read the Qwen response in the current browser session: ${error.message}`);
       }
     }, (seconds) => page.wait(seconds), deadline, Date.now, { baselineMessageIds, prompt });
-    if (result) return { conversation_id: chatId, messages: result };
+    if (result) return formatAskResult(chatId, result, args['include-messages'], { prompt, baselineMessageIds });
     throw new CommandExecutionError(`Timed out waiting for Qwen response in conversation ${chatId}`);
   },
 });
