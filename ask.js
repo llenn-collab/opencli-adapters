@@ -1,7 +1,7 @@
 import { cli, Strategy } from '@jackwener/opencli/registry';
 import { CommandExecutionError } from '@jackwener/opencli/errors';
 import { selectModel } from './model-ui.mjs';
-import { messageContent } from './message-content.mjs';
+import { messageContent, orderReplies } from './message-content.mjs';
 
 const modes = { web_dev: 'Web Dev', web_search: 'Web search', deep_research: 'Deep Research' };
 const thinkingModes = ['auto', 'thinking', 'fast'];
@@ -87,7 +87,7 @@ export async function captureConversationBaseline(page, conversationId, timeoutM
   return messageIds;
 }
 
-export function parseCompletedMessages(payload, generating, { baselineMessageIds = new Set(), prompt } = {}) {
+export function parseCompletedMessages(payload, generating, { baselineMessageIds = new Set(), prompt, includeMessages = false } = {}) {
   const ordered = parseConversationMessages(payload);
   if (!ordered || typeof prompt !== 'string') return null;
   const userIndex = ordered.findIndex((message) => !baselineMessageIds.has(message.id)
@@ -106,10 +106,15 @@ export function parseCompletedMessages(payload, generating, { baselineMessageIds
     throw new CommandExecutionError('Qwen completed the request without a response; check account limits or site errors');
   }
   const assistantIds = new Set(assistants.map((message) => message.id));
-  const inTurnOrder = linked.length
+  let inTurnOrder = linked.length
     ? [...ordered.filter((message) => message.id !== user.id && !assistantIds.has(message.id)), user, ...assistants]
     : ordered;
-  return inTurnOrder.map(({ id, role, content, timestamp }) => ({ id, role, content: assistantIds.has(id) ? answer : content, timestamp: timestamp ?? null }));
+  if (includeMessages) {
+    inTurnOrder = orderReplies(inTurnOrder);
+  }
+  return inTurnOrder.map((message) => ({ id: message.id, role: message.role,
+    content: assistantIds.has(message.id) ? answer : includeMessages ? messageContent(message) : message.content,
+    timestamp: message.timestamp ?? null }));
 }
 
 export function formatAskResult(conversationId, messages, includeMessages = false, { prompt, baselineMessageIds = new Set() } = {}) {
@@ -153,7 +158,7 @@ export async function pollForResponse(read, wait, deadline, now = Date.now, turn
 export async function assertInputVisible(page) {
   let visibility;
   try { visibility = await page.evaluate(() => document.visibilityState); }
-  catch { /* Fail closed when visibility cannot be checked. */ }
+  catch { visibility = undefined; }
   if (visibility !== 'visible') {
     throw new CommandExecutionError('Qwen browser page is not visible or its visibility could not be checked; prompt was not submitted',
       'Select the Qwen tab and restore its browser window, then retry.');
@@ -177,7 +182,11 @@ export const askCommand = cli({
   columns: ['answer', 'conversation_id'],
   func: async (page, args) => {
     const { prompt, thinking, mode, timeout, conversationId } = validateAskArgs(args);
-    const currentUrl = await page.getCurrentUrl();
+    let currentUrl = await page.getCurrentUrl();
+    if (currentUrl === 'about:blank') {
+      await page.goto('https://chat.qwen.ai/');
+      currentUrl = await page.getCurrentUrl();
+    }
     if (!currentUrl?.startsWith('https://chat.qwen.ai/')) {
       throw new CommandExecutionError('Open the signed-in Qwen tab before using ask');
     }
@@ -220,23 +229,33 @@ export const askCommand = cli({
     }
     if (mode) await chooseMode(modes[mode]);
     await page.fillText('textarea', prompt);
-    await page.pressKey('Enter');
-    const deadline = Date.now() + timeout * 1000;
-    let chatId;
-    while (Date.now() < deadline) {
-      const path = await page.evaluate(() => location.pathname);
-      chatId = extractChatId(path);
-      if (chatId) break;
-      await page.wait(0.5);
-    }
-    if (!chatId) throw new CommandExecutionError('Qwen did not open a conversation after sending the prompt');
-    const result = await pollForResponse(async (timeoutMs) => {
-      try { return await readConversation(page, chatId, timeoutMs); }
-      catch (error) {
-        throw new CommandExecutionError(`Could not read the Qwen response in the current browser session: ${error.message}`);
+    let chatId = conversationId || undefined;
+    try {
+      await page.pressKey('Enter');
+      const deadline = Date.now() + timeout * 1000;
+      let openedId;
+      while (Date.now() < deadline) {
+        const path = await page.evaluate(() => location.pathname);
+        openedId = extractChatId(path);
+        if (openedId) break;
+        await page.wait(0.5);
       }
-    }, (seconds) => page.wait(seconds), deadline, Date.now, { baselineMessageIds, prompt });
-    if (result) return formatAskResult(chatId, result, args['include-messages'], { prompt, baselineMessageIds });
-    throw new CommandExecutionError(`Timed out waiting for Qwen response in conversation ${chatId}`);
+      if (!openedId) throw new CommandExecutionError('Qwen did not open a conversation after sending the prompt');
+      if (conversationId && openedId !== conversationId) {
+        throw new CommandExecutionError(`Qwen changed conversation from ${conversationId} to ${openedId}`);
+      }
+      chatId = openedId;
+      const result = await pollForResponse(async (timeoutMs) => {
+        try { return await readConversation(page, chatId, timeoutMs); }
+        catch (error) {
+          throw new CommandExecutionError(`Could not read the Qwen response in the current browser session: ${error.message}`);
+        }
+      }, (seconds) => page.wait(seconds), deadline, Date.now, { baselineMessageIds, prompt, includeMessages: args['include-messages'] });
+      if (result) return formatAskResult(chatId, result, args['include-messages'], { prompt, baselineMessageIds });
+      throw new CommandExecutionError('Timed out waiting for Qwen response');
+    } catch (error) {
+      const recovery = chatId ? `inspect conversation ${chatId} with qwen-studio chat-detail` : 'inspect qwen-studio chats';
+      throw new CommandExecutionError(`${error.message}. Submission may have occurred; ${recovery} before retrying.`);
+    }
   },
 });

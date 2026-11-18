@@ -54,7 +54,7 @@ Codex remains responsible for evaluating Qwen's output and completing the user's
 
 ## **2. What have we accomplished?**
 
-The latest repository records **41 passing automated tests**. I verified the implementation and its documented test results on GitHub, but I did not independently execute the test suite or a live Qwen command.
+The current working tree has live evidence for a new conversation and a continuation. Automated checks and the remaining limitations are recorded in `docs/verification.md`.
 
 | Capability                    | Current state                                                 |
 | ----------------------------- | ------------------------------------------------------------- |
@@ -62,13 +62,13 @@ The latest repository records **41 passing automated tests**. I verified the imp
 | Qwen authentication detection | Live verified                                                 |
 | Conversation listing          | Verified in previous live tests                               |
 | Read conversation messages    | Implemented and live verified                                 |
-| Compact JSON response format  | Verified through replay                                       |
+| Compact JSON response format  | Verified in a live command                                    |
 | Model discovery               | Live verified                                                 |
-| Model selection               | Implemented; automated live execution unverified              |
-| New text conversation         | Submission verified; successful command completion unverified |
+| Model selection               | Qwen4-Max verified live using response metadata                |
+| New text conversation         | Successful live command verified                              |
 | Response extraction           | Improved and replay verified                                  |
-| Multi-turn conversation       | Implemented; live verification pending                        |
-| Thinking controls             | Implemented; results not verified                             |
+| Multi-turn conversation       | Verified for one live continuation                            |
+| Thinking controls             | Fast returned a review; mode effects need further verification |
 | Web search and research modes | Partially verified                                            |
 | File uploads                  | Blocked by Chrome permissions                                 |
 | Error handling                | Implemented; more live validation required                    |
@@ -82,7 +82,7 @@ Qwen successfully generated `OK.` in conversation `17d400aa-9762-416e-9e17-282a7
 
 The original command failed to retrieve that answer within its timeout. The updated parser can now recover the answer from the recorded conversation.
 
-This establishes that the parser works for that observed response structure. It does not yet establish that a new live `ask` command can complete successfully.
+Subsequently, a live `ask` returned `READY` and conversation ID `a6ddaeac-377e-441b-98e1-889c303ea9a0`; its continuation recalled `Periwinkle` with the same ID. Both recorded model metadata `qwen4-max`.
 
 ## **3. Expected adapter behavior — Operating manual**
 
@@ -149,7 +149,7 @@ Expected behavior:
 - Verify selection before submitting.
 - Reject unsupported or unavailable models without submitting a prompt.
 
-**Current status:** Model discovery works. Live model-specific answer generation still needs verification.
+**Current status:** Model discovery works; Qwen4-Max generation was verified for both turns of one conversation. Other models remain unverified for generation.
 
 ### **C. Text chat**
 
@@ -370,10 +370,10 @@ These are the outstanding engineering requirements, in priority order.
 
 | Priority | Task                        | Completion criterion                                                           |
 | -------- | --------------------------- | ------------------------------------------------------------------------------ |
-| P0       | Reliable live text response | A new `ask` command exits successfully with the correct nonempty answer and ID |
-| P0       | Multi-turn continuation     | Two successful consecutive commands use the same conversation                  |
+| P0       | Reliable live text response | One successful live command verified; additional reliability testing remains  |
+| P0       | Multi-turn continuation     | One successful two-turn conversation verified; additional testing remains      |
 | P0       | Safe timeout recovery       | A failed read cannot cause a duplicate prompt                                  |
-| P1       | Live model selection        | A generated response uses the requested available model                        |
+| P1       | Live model selection        | Qwen4-Max verified; other model selections remain unverified                    |
 | P1       | Codex task delegation       | Codex invokes OpenCLI, reads JSON, and uses the answer without manual copying  |
 | P1       | File uploads                | Qwen accepts a real local attachment through supported OpenCLI operations      |
 | P1       | Reasoning-mode verification | Each requested thinking setting works in a live task                           |
@@ -425,7 +425,7 @@ These tests require real browser-backed verification where applicable. Unit test
 
 ## **7. What should we do next?**
 
-**Next task: Verify a complete live two-turn conversation with the updated parser.**
+**Next task: Resolve supported file upload and verify its contents reach Qwen.**
 
 The previous iterations established three important facts:
 
@@ -433,13 +433,7 @@ The previous iterations established three important facts:
 2. Qwen can generate a completed answer.
 3. The corrected parser can recover that answer through read-only replay.
 
-The remaining gap is making the complete `ask` command return successfully and then continuing its conversation.
-
-I recommend one controlled live test using the connected foreground Qwen page. If the first command fails after submission, inspect the existing conversation rather than resubmit. If it succeeds, run one continuation.
-
-Do not begin another broad browser investigation unless that test provides new evidence of a browser-specific failure.
-
-Once live continuation passes, test Codex delegation using the existing OpenCLI JSON interface. After that, address the file-upload blocker and verify the requested modes.
+One live two-turn conversation now passed. Upload remains blocked by Chrome's `Not allowed` response; a later retry stalled after reconnect and no new chat was observed. Investigate a supported OpenCLI upload path without bypassing browser permissions. Continue to inspect the existing conversation before retrying uncertain submissions.
 
 ### **Final assessment**
 

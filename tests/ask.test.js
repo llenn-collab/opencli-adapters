@@ -4,6 +4,87 @@ import { askCommand, captureConversationBaseline, extractChatId, formatAskResult
 
 const newTurn = { baselineMessageIds: new Set(), prompt: 'hi' };
 
+test('optional messages resolve prior finished answers and place replies after their parent', () => {
+  const payload = { success: true, data: { chat: { history: { messages: {
+    oldAssistant: { id: 'old-a', role: 'assistant', parentId: 'old-u', content: '', timestamp: 1,
+      content_list: [{ phase: 'answer', status: 'finished', content: 'READY' }] },
+    oldUser: { id: 'old-u', role: 'user', content: 'first', timestamp: 1 },
+    user: { id: 'new-u', role: 'user', content: 'hi', timestamp: 2 },
+    assistant: { id: 'new-a', role: 'assistant', parentId: 'new-u', content: 'OK', done: true, timestamp: 2 },
+  } } } } };
+  const turn = { baselineMessageIds: new Set(['old-u', 'old-a']), prompt: 'hi', includeMessages: true };
+  const messages = parseCompletedMessages(payload, false, turn);
+  assert.deepEqual(messages.map(({ id, content }) => [id, content]), [
+    ['old-u', 'first'], ['old-a', 'READY'], ['new-u', 'hi'], ['new-a', 'OK'],
+  ]);
+  assert.equal(formatAskResult('chat-id', messages, true, turn).answer, 'OK');
+  payload.data.chat.history.messages.oldAssistant.content_list.push({ phase: 'answer', status: 'finished', content: 'ambiguous' });
+  assert.throws(() => parseCompletedMessages(payload, false, turn), /multiple answer components/);
+  assert.equal(formatAskResult('chat-id', parseCompletedMessages(payload, false, { ...turn, includeMessages: false }), false, turn).answer, 'OK');
+});
+
+test('opens Qwen from a blank lease and checks visibility before controls', async () => {
+  const calls = [];
+  let url = 'about:blank';
+  const page = {
+    getCurrentUrl: async () => url,
+    goto: async (target) => { calls.push(['goto', target]); url = target; },
+    evaluate: async () => { calls.push(['visibility']); return 'hidden'; },
+    click: async () => calls.push(['click']), fillText: async () => calls.push(['fill']),
+    pressKey: async () => calls.push(['submit']),
+  };
+  await assert.rejects(() => askCommand.func(page, { prompt: 'hi' }), /prompt was not submitted/);
+  assert.deepEqual(calls, [['goto', 'https://chat.qwen.ai/'], ['visibility']]);
+});
+
+test('does not navigate away from an unrelated page', async () => {
+  const calls = [];
+  const page = { getCurrentUrl: async () => 'https://example.com/', goto: async () => calls.push('goto') };
+  await assert.rejects(() => askCommand.func(page, { prompt: 'hi' }), /Open the signed-in Qwen tab/);
+  assert.deepEqual(calls, []);
+});
+
+function submissionPage({ conversationId = '', openedId, pollError, pressError } = {}) {
+  let paths = 0;
+  let submissions = 0;
+  return {
+    get submissions() { return submissions; },
+    getCurrentUrl: async () => 'https://chat.qwen.ai/',
+    goto: async () => {}, click: async () => {}, wait: async () => {}, fillText: async () => {},
+    pressKey: async () => { submissions += 1; if (pressError) throw new Error(pressError); },
+    evaluate: async (fn, args) => {
+      const source = String(fn);
+      if (source.includes('visibilityState')) return 'visible';
+      if (source.includes('location.pathname')) return `/c/${paths++ === 0 && conversationId ? conversationId : openedId}`;
+      if (args?.id) return args.id === conversationId && paths === 1
+        ? { data: { success: true, data: { chat: { history: { messages: {} } } } } }
+        : { pollError };
+      return undefined;
+    },
+  };
+}
+
+test('reports the known conversation and read-first recovery on polling failure', async () => {
+  const id = '517655ca-1935-48a1-ad44-49ecaf5e7da4';
+  const page = submissionPage({ openedId: id, pollError: { kind: 'auth', status: 401 } });
+  await assert.rejects(() => askCommand.func(page, { prompt: 'hi' }), new RegExp(`authentication failed: HTTP 401.*inspect conversation ${id}.*before retrying`));
+  assert.equal(page.submissions, 1);
+});
+
+test('rejects a changed continuation ID and provides the original for recovery', async () => {
+  const id = '517655ca-1935-48a1-ad44-49ecaf5e7da4';
+  const other = '7e1b2505-122a-411b-aa7e-862d2372308a';
+  const page = submissionPage({ conversationId: id, openedId: other });
+  await assert.rejects(() => askCommand.func(page, { prompt: 'hi', 'conversation-id': id }), new RegExp(`changed conversation from ${id} to ${other}.*inspect conversation ${id}.*before retrying`));
+  assert.equal(page.submissions, 1);
+});
+
+test('reports uncertain dispatch without suggesting a blind retry', async () => {
+  const page = submissionPage({ pressError: 'dispatch failed' });
+  await assert.rejects(() => askCommand.func(page, { prompt: 'hi' }), /dispatch failed.*Submission may have occurred; inspect qwen-studio chats before retrying/);
+  assert.equal(page.submissions, 1);
+});
+
 test('matches completed replies by parent ID when Qwen returns equal timestamps out of order', () => {
   const payload = { success: true, data: { chat: { history: { messages: {
     a: { id: 'a', role: 'assistant', parentId: 'u', content: '', done: true, timestamp: 1, content_list: [{ phase: 'answer', status: 'finished', content: 'OK.' }] },

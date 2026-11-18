@@ -8,3 +8,17 @@ export function messageContent(message) {
   if (parts.length > 1) throw new CommandExecutionError('Qwen returned multiple answer components; cannot verify the complete response');
   return parts[0]?.content ?? message.content;
 }
+
+export function orderReplies(messages) {
+  const ordered = [...messages];
+  for (let i = 0; i < ordered.length; i += 1) {
+    const child = ordered[i];
+    const parentIndex = ordered.findIndex((message) => message?.id === child?.parentId);
+    if (child?.role === 'assistant' && parentIndex > i && ordered[parentIndex]?.role === 'user') {
+      ordered.splice(i, 1);
+      ordered.splice(parentIndex, 0, child);
+      i -= 1;
+    }
+  }
+  return ordered;
+}

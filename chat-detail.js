@@ -1,19 +1,20 @@
 import { cli, Strategy } from '@jackwener/opencli/registry';
 import { CommandExecutionError } from '@jackwener/opencli/errors';
 import { qwenApiJson } from './qwen-api.mjs';
-import { messageContent } from './message-content.mjs';
+import { messageContent, orderReplies } from './message-content.mjs';
 
 export function parseChatDetail(payload) {
   const messages = payload?.data?.chat?.history?.messages;
   if (payload?.success !== true || !messages || typeof messages !== 'object' || Array.isArray(messages)) {
     throw new CommandExecutionError('Qwen returned an unexpected conversation response');
   }
-  return Object.values(messages).map((message) => {
+  const ordered = Object.values(messages).sort((a, b) => (a?.timestamp ?? 0) - (b?.timestamp ?? 0));
+  return orderReplies(ordered).map((message) => {
     if (typeof message?.id !== 'string' || typeof message.role !== 'string' || typeof message.content !== 'string') {
       throw new CommandExecutionError('Qwen returned a message without an ID, role, or text');
     }
     return { id: message.id, role: message.role, content: messageContent(message), timestamp: message.timestamp ?? null };
-  }).sort((a, b) => (a.timestamp ?? 0) - (b.timestamp ?? 0));
+  });
 }
 
 cli({

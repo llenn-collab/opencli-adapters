@@ -77,3 +77,14 @@ Live check: signed-in status succeeded. A separate foreground Qwen page reported
 - The prompt `Remember the word cobalt. Reply exactly: OK.` was submitted in conversation `17d400aa-9762-416e-9e17-282a7ed8db21`. The original command timed out; a later read showed completed answer components containing `OK.`. Messages shared a timestamp and Qwen returned the assistant records before their parent user record.
 - After matching the response using Qwen's observed parent links, read-only replay returned `{ "answer": "OK.", "conversation_id": "17d400aa-9762-416e-9e17-282a7ed8db21" }`. This replay verifies the parser and compact format for the recorded conversation, not an end-to-end successful live command.
 - A continuation attempt stopped before dispatch because the adapter page was not visible or its visibility could not be checked. No continuation prompt was submitted; live continuity remains unverified.
+
+## Foreground ephemeral live verification
+
+- A foreground ephemeral `ask` using Qwen4-Max returned `READY` with conversation ID `a6ddaeac-377e-441b-98e1-889c303ea9a0`; a continuation returned `Periwinkle` and the same ID. Both assistant messages recorded model metadata `qwen4-max`.
+- A Fast-mode code review returned a response. The Thinking and Web search request in `54b31644-b99f-40f7-856b-433e2b0063a0` returned official sources. Its saved feature configuration had `thinking_mode: Thinking`, `thinking_enabled: true`, and `auto_search: true`; `thinking_summary` and `answer` phases finished. This does not prove actual web retrieval occurred.
+- A Deep Research attempt lost its stale page after reconnecting. Recent chats showed no new record. This does not establish whether Deep Research works.
+- Upload failed before dispatch with Chrome DevTools Protocol `Not allowed`. A retry stalled after reconnecting and was interrupted; no new chat was observed. Upload remains unverified.
+- A fresh-session Web Dev attempt stalled and was interrupted without a known submission; Web Dev remains unverified.
+- A read-only ephemeral foreground readiness diagnostic subsequently navigated to Qwen and found a visible composer. After no new chat was observed, a Web Dev retry also stalled and was interrupted; its outcome remains unverified.
+- `ask` now navigates an exact `about:blank` lease to Qwen before checking visibility, while preserving unrelated pages. Post-dispatch failures report a known conversation ID and advise reading it before retrying. Optional fetched messages resolve finished answer components; these changes have automated coverage and require further live verification.
+- Read-only `chat-detail` initially showed assistant messages before their parent user messages where timestamps were equal. After the parser change, live `chat-detail` returned the known parent/reply pairs in order.
