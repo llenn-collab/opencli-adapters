@@ -1,0 +1,9 @@
+{
+  "name": "opencli-plugin-qwen-studio",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "An opencli plugin: qwen-studio",
+  "peerDependencies": {
+    "@jackwener/opencli": ">=2.0.3"
+  }
+}
