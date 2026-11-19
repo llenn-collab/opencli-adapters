@@ -64,6 +64,50 @@ Never include account tokens or private chat contents in logs or fixtures. The a
 
 Live check: signed-in status succeeded. A separate foreground Qwen page reported `visible` and had a textarea. `models` returned Qwen3.7-Plus, Qwen4-Max (selected), and Qwen3.8-Max. The first `ask --model Qwen4-Max --window foreground` failed the preflight with `Qwen browser page is not visible or its visibility could not be checked; prompt was not submitted`. No prompt retry or continuation was attempted. Visibility of the separate page does not establish visibility of the adapter's page.
 
+## Reliability hardening (2026-11-18)
+
+- `node --test tests/*.test.js` — 58 passed, 0 failed (up from 51).
+- `opencli adapter check qwen-studio` — 9 commands, 0 errors, 0 warnings.
+- `git diff --check` — passed.
+- Added 7 lifecycle edge-case tests covering: blocking dialogs (non-verification), disabled/loading composer, unauthenticated state, wrong-origin fail-fast in `readConversation`, no localStorage access on wrong origin, non-retryable origin errors in `pollForResponse`, and disconnection during response polling with recoverable inspection message.
+- Fixed `readConversation` to validate `location.origin === 'https://chat.qwen.ai'` before accessing `localStorage` (matches `qwenApiJson` behavior). Returns `{ pollError: { kind: 'origin' } }` on mismatch.
+- Fixed `pollForResponse` to handle `origin` pollError kind as non-retryable with message `Qwen page origin changed`.
+
+## Upload boundary investigation (2026-11-18)
+
+- Created isolated local HTML file-input fixture (`tests/fixtures/upload-input.html`) and non-sensitive test file (`tests/fixtures/upload-test.txt`).
+- **Local HTTP fixture result:** `opencli browser upload` succeeded — `uploaded: true`, `file_names: ["upload-test.txt"]`, file input contained 1 file (200 bytes). Change event fired correctly.
+- **chat.qwen.ai result:** `opencli browser upload` returned `uploaded: true` but `file_names: []` and file input contained **0 files**. Silent CDP failure on `DOM.setFileInputFiles` for the chat.qwen.ai origin.
+- **Conclusion:** The restriction is **Qwen-origin-specific**, not bridge-wide or Chrome-wide. The Browser Bridge `setFileInput` works correctly on local HTTP origins. Chrome's `DOM.setFileInputFiles` is restricted for chat.qwen.ai (likely Permissions Policy or CSP).
+- **External change needed:** Chrome must allow `DOM.setFileInputFiles` for chat.qwen.ai, or Qwen must expose an API upload endpoint that the adapter can call. Upload and overall acceptance remain **blocked**; no security bypass attempted.
+
+## Live acceptance evidence (2026-11-18)
+
+All pooled Qwen commands used `OPENCLI_SITE_SLOTS=qwen-studio:1`, connected profile `qsfrjtn8`, extension 1.0.27, foreground window.
+
+| Acceptance test | Status | Evidence |
+|---|---|---|
+| Test 1 — Authentication | PASS | `status` returned `logged_in: true`; `models` lists 3 models; unauthenticated rejection unit-tested |
+| Test 2 — Model selection | PASS | Discovered Qwen3.7-Plus, Qwen4-Max (selected), Qwen3.8-Max. Selected Qwen3.8-Max via `--model` flag; generation succeeded with that model |
+| Test 3 — Generation | PASS | Prompt "Remember the word amber. Reply exactly: OK." → answer `OK.`, conversation `043df430-05ef-42f6-9638-f39adb24410b` |
+| Test 4 — Continuation | PASS | Follow-up "What word did I ask you to remember?" → "You asked me to remember the word amber." Same conversation ID. `chat-detail` confirms 4 messages, one user per prompt, no duplicates |
+| Test 5 — Structured output | PASS | Default: `{ answer, conversation_id }`. With `--include-messages`: `{ answer, conversation_id, messages }` (6 messages, ordered) |
+| Test 6 — Recovery | PASS | Unit-tested for transient reads, timeouts, hidden page, connection loss. Live: fail-closed on invalid conversation ID with clear error. Recovery message format verified |
+| Test 7 — Upload | **BLOCKED** | Chrome `DOM.setFileInputFiles` restricted on chat.qwen.ai. Local fixture works (proof it's Qwen-origin-specific). External change required |
+| Test 8 — Delegation | PASS | Qwen reviewed Python fixture, found `ZeroDivisionError` on empty list. Codex confirmed defect via `python3 -c "exec(...)"`. Follow-up with conversation ID `a6114e86-2654-4710-945e-6d02a9b8a496` returned fix suggestion. Zero false positives |
+| Test 9 — Regression | PASS | 58 tests passing, 9 adapter commands with 0 errors/0 warnings, `git diff --check` clean |
+
+### Mode evidence (Phase 5)
+
+| Mode | Status | Evidence |
+|---|---|---|
+| Auto | PASS (default) | Generation and continuation succeeded in default mode |
+| Fast | PASS | "What is 2+2?" → `4` in conversation `e7d95362-d4aa-4bc1-87e8-474f36515de3` |
+| Thinking | PASS | "What is the capital of France?" → `Paris` in conversation `790ad797-7c48-4578-95c1-37c5b67e1f0a` |
+| Web search | PASS | Tokyo population → answer with citations `[[20]]`, `[[24]]` in conversation `58840994-6587-4e67-b0c8-677622bd8cf2` |
+| Deep Research | INVOKED | Asked clarifying questions (expected behavior). Answer nonempty. Conversation `10bc9135-b919-403f-8e71-9cfd2c733493` |
+| Web Dev | PASS | Generated complete HTML page with red heading "Hello". Conversation `a39d46c3-7732-4a89-8b6a-7c3874151a78` |
+
 ## Phase 2 baseline and read-only investigation (2026-11-18)
 
 - Branch `main`, HEAD and fetched `origin/main` both `18466383dd3e0c03e83eaf18fb624f627eb6317f`; unrelated worktree changes were preserved.

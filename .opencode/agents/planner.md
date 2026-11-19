@@ -1,7 +1,7 @@
 ---
 description: Plan-mode agent for turning requests into focused, verifiable implementation plans.
 mode: subagent
-model: openrouter/~openai/gpt-sol-latest#medium
+model: openai/gpt-6.1-sol#low
 permissions:
   - action: edit
     resource: "*"

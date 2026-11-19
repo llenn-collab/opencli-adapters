@@ -1,0 +1,2 @@
+Qwen upload verification marker: 7f3a9b2c-e8d1-4f6a-b3c5-d9e0f1a2b3c4
+This file contains no sensitive data. It exists solely to verify that file content reaches Qwen through an adapter-driven upload.

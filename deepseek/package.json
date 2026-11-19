@@ -1,0 +1,9 @@
+{
+  "name": "opencli-plugin-deepseek-chat",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "An opencli plugin: deepseek-chat",
+  "peerDependencies": {
+    "@jackwener/opencli": ">=2.0.3"
+  }
+}

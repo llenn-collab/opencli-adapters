@@ -1,11 +1,21 @@
 # Project agent instructions
 
-## Qwen Studio adapter
+This workspace holds two independent OpenCLI plugins in sibling folders: `qwen/` (`qwen-studio` for `chat.qwen.ai`) and `deepseek/` (`deepseek-chat` for `chat.deepseek.com`). Each folder is a self-contained installable plugin (own manifest, sources, tests, docs). Workspace-level files (this file, `skills-lock.json`) stay at the root.
 
-- This workspace implements the independent `qwen-studio` OpenCLI plugin for `chat.qwen.ai`; do not confuse it with Qianwen's existing site adapter.
+## Qwen Studio adapter (`qwen/`)
+
+- The `qwen-studio` plugin is independent for `chat.qwen.ai`; do not confuse it with Qianwen's existing site adapter.
 - Preserve the authenticated browser session. Never read, print, or store the Qwen token outside the page context.
 - Prompt submission and uploads can consume account usage. The user authorized small test prompts; avoid unnecessary retries and inspect the conversation after a timeout.
 - Treat undocumented Qwen endpoints and UI labels as observed implementation details that may change. Do not claim unverified behavior.
+- Keep unsupported UI features out of adapter coverage documentation.
+
+## DeepSeek Chat adapter (`deepseek/`)
+
+- The `deepseek-chat` plugin is independent for `chat.deepseek.com`; do not confuse it with OpenCLI's built-in `deepseek` site adapter (which is the observed-evidence reference, not shared code).
+- Preserve the authenticated browser session. Never read, print, or store the DeepSeek `userToken` outside the page context.
+- Prompt submission can consume account usage. The user authorized small test prompts on the same terms as Qwen; avoid unnecessary retries and inspect the conversation after a timeout.
+- Treat undocumented DeepSeek endpoints and UI labels as observed implementation details that may change (e.g. the model picker targeted by `div[role="radio"]` is absent in the 2026-11-18 UI build). Do not claim unverified behavior; classify unavailable features accurately in coverage docs.
 - Keep unsupported UI features out of adapter coverage documentation.
 
 ## Delegation
@@ -19,3 +29,7 @@
 - Escalate to the read-only `error_advisor` only if the advisor cannot identify a safe correction from the evidence, or one evidence-based repair guided by the advisor fails to resolve the major error. Include the exact failure evidence and prior repair result.
 - The primary agent, builder, or an assigned worker may apply fixes within its scope. Advisors provide recommendations only; they must not implement. Do not run repeated advisor escalation loops.
 - Agents inherit the parent session's permissions and tools. Agent instructions do not grant separate read-only permissions or a sandbox.
+
+# Agent Desktop
+
+- Use `agent-desktop` to see and operate desktop apps. Before the first use, run `agent-desktop skills get desktop` and `agent-desktop skills get platform`, and follow them.

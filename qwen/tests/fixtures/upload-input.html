@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="utf-8"><title>Upload Fixture</title></head>
+<body>
+<h1>File input fixture</h1>
+<p>Use this page to test setFileInput and browser upload without touching Qwen.</p>
+<input type="file" id="filesUpload" name="filesUpload">
+<output id="result"></output>
+<script>
+document.getElementById('filesUpload').addEventListener('change', (event) => {
+  const file = event.target.files[0];
+  document.getElementById('result').textContent = file
+    ? `Selected: ${file.name} (${file.size} bytes)`
+    : 'No file selected';
+});
+</script>
+</body>
+</html>

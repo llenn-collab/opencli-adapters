@@ -1,7 +1,7 @@
 ---
 description: Read-only specialist for major functional, security, integration, or regression failures.
 mode: subagent
-model: openrouter/~openai/gpt-sol-latest#high
+model: openai/gpt-6.1-sol#medium
 permissions:
   - action: edit
     resource: "*"

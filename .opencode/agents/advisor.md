@@ -1,7 +1,7 @@
 ---
 description: Read-only technical advisor for uncertain technical decisions.
 mode: subagent
-model: openrouter/~openai/gpt-sol-latest#low
+model: openai/gpt-6.1-sol#low
 permissions:
   - action: edit
     resource: "*"

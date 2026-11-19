@@ -1,0 +1,2 @@
+DEEPSEEK-UPLOAD-MARKER-2026-11-18
+This fixture is used by deepseek/tests/upload.test.js to exercise attachment upload paths.

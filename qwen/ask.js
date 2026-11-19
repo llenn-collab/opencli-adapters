@@ -37,6 +37,7 @@ export async function openConversation(page, conversationId) {
 
 export async function readConversation(page, id, timeoutMs) {
   return page.evaluate(async ({ id, timeoutMs }) => {
+    if (location.origin !== 'https://chat.qwen.ai') return { pollError: { kind: 'origin' } };
     const token = localStorage.getItem('token');
     if (!token) throw new Error('Qwen localStorage token is missing; sign in to chat.qwen.ai first');
     let response;
@@ -137,9 +138,10 @@ export async function pollForResponse(read, wait, deadline, now = Date.now, turn
       const retryable = kind === 'network' || (kind === 'http' && (status === 429 || status >= 500));
       if (!retryable) {
         const reason = kind === 'auth' ? `authentication failed: HTTP ${status}`
-          : kind === 'http' ? `conversation read failed: HTTP ${status}`
-            : kind === 'invalid_json' ? 'conversation response was not valid JSON'
-              : 'conversation request failed';
+          : kind === 'origin' ? 'page origin changed'
+            : kind === 'http' ? `conversation read failed: HTTP ${status}`
+              : kind === 'invalid_json' ? 'conversation response was not valid JSON'
+                : 'conversation request failed';
         throw new CommandExecutionError(`Qwen ${reason}`);
       }
       lastTransientError = kind === 'network' ? 'network errors' : `HTTP ${status}`;

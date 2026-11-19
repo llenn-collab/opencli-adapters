@@ -358,3 +358,81 @@ test('stops before submission when Qwen requires verification', async () => {
   await assert.rejects(() => askCommand.func(page, { prompt: 'hi' }), /verification.*manually/i);
   assert.equal(page.submissions, 0);
 });
+
+test('stops before submission when another blocking dialog appears', async () => {
+  const page = submissionPage();
+  const evaluate = page.evaluate;
+  page.evaluate = async (fn, args) => String(fn).includes('data-qwen-readiness') ? 'blocked' : evaluate(fn, args);
+  await assert.rejects(() => askCommand.func(page, { prompt: 'hi' }), /requires action.*manually/i);
+  assert.equal(page.submissions, 0);
+});
+
+test('stops before submission when the composer is disabled or still loading', async () => {
+  const page = submissionPage();
+  const evaluate = page.evaluate;
+  page.evaluate = async (fn, args) => String(fn).includes('data-qwen-readiness') ? 'loading' : evaluate(fn, args);
+  await assert.rejects(() => askCommand.func(page, { prompt: 'hi' }), /composer was not ready/i);
+  assert.equal(page.submissions, 0);
+});
+
+test('stops before submission when not signed in', async () => {
+  const page = submissionPage();
+  const evaluate = page.evaluate;
+  page.evaluate = async (fn, args) => String(fn).includes('data-qwen-readiness') ? 'login' : evaluate(fn, args);
+  await assert.rejects(() => askCommand.func(page, { prompt: 'hi' }), /sign-in required/i);
+  assert.equal(page.submissions, 0);
+});
+
+test('readConversation fails fast when the page origin has changed', async () => {
+  const previousLocation = globalThis.location;
+  const previousStorage = globalThis.localStorage;
+  globalThis.location = { origin: 'https://evil.example.com' };
+  globalThis.localStorage = { getItem: () => 'stale-token' };
+  try {
+    const result = await readConversation({ evaluate: async (fn, args) => fn(args) }, 'chat-id', 5000);
+    assert.deepEqual(result, { pollError: { kind: 'origin' } });
+  } finally {
+    globalThis.location = previousLocation;
+    globalThis.localStorage = previousStorage;
+  }
+});
+
+test('readConversation rejects wrong-origin pages without reading localStorage', async () => {
+  const previousLocation = globalThis.location;
+  const previousStorage = globalThis.localStorage;
+  let storageRead = false;
+  globalThis.location = { origin: 'https://evil.example.com' };
+  globalThis.localStorage = { getItem: () => { storageRead = true; return 'stale-token'; } };
+  try {
+    const result = await readConversation({ evaluate: async (fn, args) => fn(args) }, 'chat-id', 5000);
+    assert.deepEqual(result, { pollError: { kind: 'origin' } });
+    assert.equal(storageRead, false);
+  } finally {
+    globalThis.location = previousLocation;
+    globalThis.localStorage = previousStorage;
+  }
+});
+
+test('does not retry wrong-origin errors during response polling', async () => {
+  let reads = 0;
+  await assert.rejects(() => pollForResponse(async () => {
+    reads += 1;
+    return { pollError: { kind: 'origin' } };
+  }, async () => {}, 10000, () => 0), /Qwen page origin changed/);
+  assert.equal(reads, 1);
+});
+
+test('reports disconnection during response polling as a recoverable inspection message', async () => {
+  const id = '517655ca-1935-48a1-ad44-49ecaf5e7da4';
+  const page = submissionPage({ openedId: id });
+  const evaluate = page.evaluate;
+  page.evaluate = async (fn, args) => {
+    const source = String(fn);
+    if (source.includes('data-qwen-readiness')) return 'ready';
+    if (source.includes('visibilityState')) return 'visible';
+    if (args?.id) throw new Error('Target closed');
+    return evaluate(fn, args);
+  };
+  await assert.rejects(() => askCommand.func(page, { prompt: 'hi' }), new RegExp(`Target closed.*inspect conversation ${id}.*before retrying`));
+  assert.equal(page.submissions, 1);
+});
